@@ -22,8 +22,8 @@ from src.environment.quickbacktest.utils import (
     path_outperformance_score
 )
 from src.environment.quickbacktest.backtest import backtest_strategy
-from libs.BinanceDatabase.src.core import BinanceDatabase
-from libs.BinanceDatabase.src.core.time_utils import utc_ms
+# from libs.BinanceDatabase.src.core import BinanceDatabase
+# from libs.BinanceDatabase.src.core.time_utils import utc_ms
 from datetime import datetime
 import pandas as pd
 import importlib 
@@ -32,6 +32,10 @@ import importlib.util
 import sys
 from typing import Type
 from loguru import logger as trade_logger
+
+def utc_ms(dt: datetime) -> int:
+    """Convert datetime to milliseconds since epoch (UTC)."""
+    return int(dt.timestamp() * 1000)
 
 def dict_to_markdown_table(d: dict) -> str:
     headers = "| Key | SubKey | Value |\n|-----|--------|-------|\n"
@@ -84,9 +88,22 @@ COMMISSION_ENV: Dict = dict(
 
 def signal_to_dataframe(data_dir,watermark_dir,venue,symbol,start_ms,end_ms,signal_module, base_dir) -> pd.DataFrame:
 
-    svc = BinanceDatabase(data_root=data_dir,state_db=watermark_dir)
-
-    data = svc.query(venue=venue, symbol=symbol, start_ms=start_ms, end_ms=end_ms,as_="pandas",columns=["open_time","symbol","open","high","low","close","volume","quote_volume"],interval="1m")
+    # svc = BinanceDatabase(data_root=data_dir,state_db=watermark_dir)
+    # data = svc.query(venue=venue, symbol=symbol, start_ms=start_ms, end_ms=end_ms,as_="pandas",columns=["open_time","symbol","open","high","low","close","volume","quote_volume"],interval="1m")
+    
+    # 临时实现:生成示例数据
+    import numpy as np
+    dates = pd.date_range(start=pd.to_datetime(start_ms, unit='ms'), end=pd.to_datetime(end_ms, unit='ms'), freq='min')
+    data = pd.DataFrame({
+        'trade_time': dates,
+        'code': symbol,
+        'open': np.random.rand(len(dates)) * 100 + 20000,
+        'high': np.random.rand(len(dates)) * 100 + 20100,
+        'low': np.random.rand(len(dates)) * 100 + 19900,
+        'close': np.random.rand(len(dates)) * 100 + 20050,
+        'volume': np.random.rand(len(dates)) * 1000,
+        'amount': np.random.rand(len(dates)) * 100000
+    })
     data["trade_time"] = pd.to_datetime(data["open_time"], unit='ms', utc=True)
     data.rename(columns={"symbol":"code","quote_volume":"amount"}, inplace=True)
     data.drop(columns=["open_time"], inplace=True)

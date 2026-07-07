@@ -15,7 +15,12 @@ root = str(Path(__file__).resolve().parents[1])
 sys.path.append(root)
 
 from src.environment.quickbacktest.run import signal_to_dataframe
-from libs.BinanceDatabase.src.core.time_utils import utc_ms
+# from libs.BinanceDatabase.src.core.time_utils import utc_ms
+
+# 临时实现utc_ms函数
+def utc_ms(dt: datetime) -> int:
+    """Convert datetime to milliseconds since epoch (UTC)."""
+    return int(dt.timestamp() * 1000)
 
 
 # ============================================================
