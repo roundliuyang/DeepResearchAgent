@@ -595,6 +595,19 @@ class ModelManager:
                 "max_completion_tokens": self.max_tokens,
                 "fallback_model": "openrouter/o3",
             },
+            {
+                "model_name": "openrouter/qwen3.7-max",
+                "model_id": "qwen/qwen3.7-max",
+                "model_type": "chat/completions",
+                "reasoning": {
+                    "reasoning": {
+                        "enabled": True
+                    }
+                },
+                "temperature": self.default_temperature,
+                "max_completion_tokens": self.max_tokens,
+                "fallback_model": "openrouter/o3",
+            },
             #deepseek models
             {
                 "model_name": "openrouter/deepseek-v3.2",
