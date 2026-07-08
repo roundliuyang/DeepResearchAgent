@@ -72,6 +72,7 @@ async def main():
     
     # Initialize skills
     logger.info("| 🎯 Initializing skills...")
+    # 例如 ['hello-world']
     skill_names = getattr(config, 'skill_names', None)
     await scp.initialize(skill_names=skill_names)
     logger.info(f"| ✅ Skills initialized: {await scp.list()}")
