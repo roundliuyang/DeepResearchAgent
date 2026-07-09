@@ -19,7 +19,6 @@ from src.session import SessionContext
 from src.utils import assemble_project_path, file_lock
 from src.version import version_manager
 
-
 DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent / "default_skills"
 
 
@@ -77,11 +76,15 @@ class SkillContextManager(BaseModel):
         discovered: Dict[str, SkillConfig] = {}
 
         # 1. Load from built-in default_skills directory
+        # 扫描 src/skill/default_skills/ 目录, 查找包含 SKILL.md 的子目录
         default_configs = await self._load_from_directory(DEFAULT_SKILLS_DIR)
+        # {'hello-world': SkillConfig(name='hello-world', description='A demonstration skill that greets users and showcases all skill elements. Use whe...lls\\hello_world\\examples.md', 'D:\\xx\\DeepResearchAgent\\src\\skill\\default_skills\\hello_world\\reference.md'], text=None)}
         discovered.update(default_configs)
 
         # 2. Load previously persisted skills from JSON (may contain user-registered skills)
+        # 从 workdir/tool_calling_agent/skill/skill.json 读取, 本质：加载已经保存过的技能配置，以恢复之前注册的技能
         persisted_configs = await self._load_from_json()
+        # 版本冲突时选择更高版本
         for name, persisted_cfg in persisted_configs.items():
             if name in discovered:
                 existing = discovered[name]
@@ -92,14 +95,15 @@ class SkillContextManager(BaseModel):
                 discovered[name] = persisted_cfg
 
         # 3. Filter by name if requested
-        if skill_names is not None:
+        # 假设 discovered = {"hello-world": cfg1, "greeting": cfg2, "calculator": cfg3}, skill_names = ["hello-world"]
+        if skill_names is not None:  # 如果配置了 skill_names
             filtered: Dict[str, SkillConfig] = {}
-            for name in skill_names:
-                if name in discovered:
-                    filtered[name] = discovered[name]
+            for name in skill_names:  # 遍历 ["hello-world"]
+                if name in discovered:  # "hello-world" 在 discovered 中吗？
+                    filtered[name] = discovered[name]  # ✅ 加入过滤结果
                 else:
                     logger.warning(f"| ⚠️ Requested skill '{name}' not found in discovered skills")
-            discovered = filtered
+            discovered = filtered  # 只保留过滤后的技能
 
         # 4. Build text representations, register versions, and store
         for name, skill_config in discovered.items():
@@ -114,8 +118,8 @@ class SkillContextManager(BaseModel):
             logger.info(f"| 🎯 Skill '{name}' v{skill_config.version} loaded from {skill_config.skill_dir}")
 
         # 5. Persist
-        await self.save_to_json()
-        await self.save_contract()
+        await self.save_to_json()  # 保存到 skill.json
+        await self.save_contract()  # 保存到 contract.md
 
         logger.info(f"| ✅ Skills initialization completed — {len(self._skill_configs)} skill(s) loaded")
 
