@@ -47,10 +47,21 @@ tool_names = [
     # "plotter",
     "skill_generator",
     "ai_capability_debate",
+    "mcp_importer",
 ]
 skill_names = [
     "hello-world",
 ]
+
+#-----------------MCP CONNECTIONS CONFIG-----------------
+# MCP 连接配置示例
+mcp_connections = {
+    "math_server": {
+        "command": "python",
+        "args": ["D:/xx/DeepResearchAgent/servers/math_server.py"],
+        "transport": "stdio"
+    },
+}
 
 #-----------------BASH TOOL CONFIG-----------------
 bash_tool.update(
@@ -94,7 +105,7 @@ skill_generator_tool.update(
 )
 #-----------------AI CAPABILITY DEBATE TOOL CONFIG-----------------
 ai_capability_debate_tool.update(
-    model_name="openrouter/gemini-3-flash-preview",
+    model_name=model_name,
     agent_models=[
         "openrouter/gemini-3-flash-preview",
         "openrouter/gpt-5.2",
