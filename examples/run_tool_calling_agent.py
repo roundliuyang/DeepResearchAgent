@@ -108,10 +108,16 @@ async def main():
     # task = "开启一个AI能力自博弈讨论，讨论主题和行业是：AI在生物医药行业的应用。"
     # task = """计算：(3.5 + 2.7) * 4 - 10 / 2 + 2^3返回最终计算结果"""
     # task = """3.5 + 2.7 两个数相加"""
-    task = """读取 D:/资料/专利/一种面向空间复杂场景的通用智能体构建方法.docx 文档的全部段落文本
-MCP工具调用格式：{"action": "<工具名>", "args": {<参数>: <值>}}
-例如：{"action": "read_paragraphs", "args": {"file_path": "D:/xxx.docx"}}
-"""
+#     task = """读取 D:/资料/专利/一种面向空间复杂场景的通用智能体构建方法.docx 文档的全部段落文本
+# MCP工具调用格式：{"action": "<工具名>", "args": {<参数>: <值>}}
+# 例如：{"action": "read_paragraphs", "args": {"file_path": "D:/xxx.docx"}}
+# """
+    task = """请向以下团队成员发送问候语：
+    1. Alice（使用随意风格）
+    2. Professor Zhang（使用正式风格）
+    3. Bob（庆祝生日，使用节日风格）
+    """
+
     files = []
     
     logger.info(f"| 📋 Task: {task}")
