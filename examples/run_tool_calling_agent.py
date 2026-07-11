@@ -70,6 +70,14 @@ async def main():
     await tcp.initialize(tool_names=config.tool_names)
     logger.info(f"| ✅ Tools initialized: {await tcp.list()}")
     
+    # Auto-import MCP connections if configured
+    mcp_connections = getattr(config, 'mcp_connections', None)
+    if mcp_connections and 'mcp_importer' in config.tool_names:
+        logger.info("| 🔌 Auto-importing MCP connections...")
+        result = await tcp(name='mcp_importer', input={'connections': mcp_connections})
+        logger.info(f"| ✅ MCP auto-import: {result.message}")
+        logger.info(f"| ✅ Tools after MCP import: {await tcp.list()}")
+    
     # Initialize skills
     logger.info("| 🎯 Initializing skills...")
     # 例如 ['hello-world']
@@ -98,7 +106,12 @@ async def main():
     # task = "Write a mini game about a cat that can fly and fight enemies, and then push it to github."
     # task = "Generate an add two numbers skill to add 1 and 2 and return the result."
     # task = "开启一个AI能力自博弈讨论，讨论主题和行业是：AI在生物医药行业的应用。"
-    task = """计算：(3.5 + 2.7) * 4 - 10 / 2 + 2^3返回最终计算结果"""
+    # task = """计算：(3.5 + 2.7) * 4 - 10 / 2 + 2^3返回最终计算结果"""
+    # task = """3.5 + 2.7 两个数相加"""
+    task = """读取 D:/资料/专利/一种面向空间复杂场景的通用智能体构建方法.docx 文档的全部段落文本
+MCP工具调用格式：{"action": "<工具名>", "args": {<参数>: <值>}}
+例如：{"action": "read_paragraphs", "args": {"file_path": "D:/xxx.docx"}}
+"""
     files = []
     
     logger.info(f"| 📋 Task: {task}")

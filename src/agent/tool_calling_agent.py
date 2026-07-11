@@ -161,6 +161,7 @@ class ToolCallingAgent(Agent):
         }
         
         try:
+            logger.info(f"| 🤖 Calling model: {self.model_name}")
             think_output = await model_manager(
                 model=self.model_name,
                 messages=messages,

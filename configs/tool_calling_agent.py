@@ -23,7 +23,7 @@ use_local_proxy = True
 version = "0.1.0"
 # model_name = "openrouter/gemini-3-flash-preview"
 # model_name = "openrouter/claude-sonnet-4.5"
-model_name = "openrouter/qwen3.7-max"
+model_name = "openrouter/deepseek-v4-flash"
 
 env_names = [
     "file_system"
@@ -36,8 +36,8 @@ agent_names = [
     "tool_calling"
 ]
 tool_names = [
-    'bash',
-    'python_interpreter',
+    # 'bash',
+    # 'python_interpreter',
     'done',
     'todo',
     # 'mdify',
@@ -59,6 +59,11 @@ mcp_connections = {
     "math_server": {
         "command": "python",
         "args": ["D:/xx/DeepResearchAgent/servers/math_server.py"],
+        "transport": "stdio"
+    },
+    "docx_server": {
+        "command": "python",
+        "args": ["D:/xx/DeepResearchAgent/servers/docx_server.py"],
         "transport": "stdio"
     },
 }
