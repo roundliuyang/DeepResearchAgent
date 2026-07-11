@@ -138,9 +138,10 @@ SKILL_CONTEXT_RULES = """
 <skill_context_rules>
 Skills provide domain-specific knowledge, step-by-step workflows, and utility scripts.
 - <skill_context> only contains a brief summary (name, description, file paths) for each loaded skill.
-- When a task matches a skill's description, read the skill's SKILL.md file to get the full instructions and workflow before proceeding.
+- When a task matches a skill's description, directly use action type="skill" with the skill name. DO NOT try to read SKILL.md manually.
+- The system will automatically load and interpret the SKILL.md content when you use type="skill".
+- You can optionally read reference files (examples.md, reference.md) if you need more details before calling the skill.
 - Skill scripts can be executed via tools (e.g., bash or python_interpreter) using the absolute paths provided.
-- Reference files (examples.md, reference.md, etc.) can be read on demand for additional detail.
 - If no skills are loaded, ignore <skill_context>.
 </skill_context_rules>
 """
