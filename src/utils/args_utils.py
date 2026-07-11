@@ -9,6 +9,15 @@ import dirtyjson
 # from src.logger import logger
 
 
+def _to_plain_dict(obj):
+    """Recursively convert dirtyjson AttributedDict to plain dict."""
+    if isinstance(obj, dict):
+        return {k: _to_plain_dict(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_plain_dict(v) for v in obj]
+    return obj
+
+
 def parse_tool_args(args_str: str) -> Dict[str, Any]:
     """Parse tool arguments string to dictionary with multiple fallback strategies.
     
@@ -25,7 +34,7 @@ def parse_tool_args(args_str: str) -> Dict[str, Any]:
     
     # Strategy 1: Try dirtyjson first (handles some malformed JSON)
     try:
-        return dirtyjson.loads(args_str)
+        return _to_plain_dict(dirtyjson.loads(args_str))
     except (dirtyjson.Error, ValueError, TypeError) as e:
         pass
     
