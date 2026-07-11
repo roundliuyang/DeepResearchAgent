@@ -369,33 +369,73 @@ class Agent(BaseModel):
             </step_info>
         """)
 
-        # Get memory state if use_memory is enabled
-        memory = ""
+        # ===== 获取记忆系统状态(仅在启用use_memory时执行) =====
+        memory = ""     # 初始化记忆上下文字符串
         if self.use_memory and self.memory_name:
+            # 从记忆管理器中获取当前会话的记忆状态
+            # 参数说明:
+            # - name: 记忆系统名称,标识使用哪个记忆实例
+            # - n: review_steps,指定获取最近N步的详细事件历史(默认5步)
+            # - ctx: 会话上下文,用于隔离不同会话的记忆空间
             state = await memory_manager.get_state(
                 name=self.memory_name,
                 n=self.review_steps,
                 ctx=ctx
             )
+
+            # 从记忆状态中提取三个关键部分:
+
+            # 1. events: 最近 N 步的详细事件列表
+            #    每个事件包含: step_number, event_type, data(thinking, actions等)
+            #    用于构建<agent_history>标签,让大模型了解近期执行细节
             events = state["events"]
+
+            # 2. summaries: 历史对话的摘要信息
+            #    由记忆系统自动生成的阶段性总结,压缩更早的历史
+            #    用于构建<summaries>标签,提供长期记忆的概览
             summaries = state["summaries"]
+
+            # 3. insights: 从历史中提取的关键洞察和经验教训
+            #    记忆系统识别的重要模式、成功经验或失败教训
+            #    用于构建<insights>标签,帮助大模型避免重复错误
             insights = state["insights"]
             
-            # Generate agent history
+            # 构建代理历史记录的XML结构,包含所有已执行步骤的详细信息
             memory += "<agent_history>"
+
+            # 遍历记忆系统中的历史事件,按步骤编号依次构建历史记录
             for event in events:
+                # 为每个步骤创建独立的XML标签,便于大模型理解步骤边界
                 memory += f"<step_{event.step_number}>\n"
+
+                # 根据事件类型提取不同的信息
                 if event.event_type == EventType.TASK_START:
+                    # 任务开始事件:记录初始任务描述
+                    # 优先使用'task'字段,如果不存在则回退到'message'字段
                     memory += f"Task Start: {event.data.get('task', event.data.get('message', ''))}\n"
                 elif event.event_type == EventType.TASK_END:
+                    # 任务结束事件:记录最终结果
                     memory += f"Task End: {event.data.get('result', '')}\n"
                 elif event.event_type == EventType.TOOL_STEP:
+                    # 工具执行步骤:记录完整的思考-行动循环信息
+                    # 1. 对前一步目标的评价(成功/失败/不确定)
                     memory += f"Evaluation of Previous Step: {event.data.get('evaluation_previous_goal', '')}\n"
+
+                    # 2. 当前步骤的记忆内容(用于跟踪进度和关键信息)
                     memory += f"Memory: {event.data.get('memory', '')}\n"
+
+                    # 3. 下一步的目标和计划
                     memory += f"Next Goal: {event.data.get('next_goal', '')}\n"
+
+                    # 4. 行动执行结果列表(包含所有tool/skill的调用和输出)
+                    # 优先使用'actions'字段(新格式),如果不存在则回退到'tool'字段(旧格式)
                     memory += f"Action Results: {event.data.get('actions', event.data.get('tool', ''))}\n"
+                # 每个步骤之间添加空行,提高可读性
                 memory += "\n"
+                # 关闭当前步骤的XML标签
                 memory += f"</step_{event.step_number}>\n"
+
+            # 关闭代理历史记录的根标签
             memory += "</agent_history>"
             
             # Generate memory
@@ -507,12 +547,31 @@ class Agent(BaseModel):
         }
 
     async def _get_skill_context(self, ctx: SessionContext, **kwargs) -> Dict[str, Any]:
-        """Get the skill context from loaded skills via SCP."""
+        """Get the skill context from loaded skills via SCP.
+        
+        从技能上下文管理器(SCP)获取已加载技能的元数据摘要,
+        并将其格式化为XML标签包裹的上下文字符串,用于注入到Agent的prompt中。
+        
+        Args:
+            ctx: 会话上下文对象(当前未使用,保留接口一致性)
+            **kwargs: 额外关键字参数(预留扩展)
+            
+        Returns:
+            包含skill_context键的字典,值为格式化后的技能上下文字符串
+            - 无技能时: "<skill_context>[No skills loaded.]</skill_context>\n"
+            - 有技能时: "<skill_context>\n{每个技能的元数据摘要}\n</skill_context>"
+        """
+        # 通过SCP获取所有已加载技能的简要元数据(名称、描述、版本、路径等,非完整SKILL.md内容)
         skill_content = await scp.get_context()
+        
+        # 根据是否有技能加载,构建不同的skill_context字符串
         if not skill_content:
+            # 无技能时返回占位提示
             skill_context = "<skill_context>[No skills loaded.]</skill_context>\n"
         else:
+            # 有技能时将元数据摘要包裹在XML标签中
             skill_context = f"<skill_context>\n{skill_content}\n</skill_context>"
+        
         return {
             "skill_context": skill_context,
         }
@@ -521,21 +580,47 @@ class Agent(BaseModel):
                             task: str, 
                             ctx: SessionContext,
                             **kwargs) -> List[Message]:
-        """Build system+agent messages using prompt templates and context."""
+        """Build system+agent messages using prompt templates and context.
 
+        构建发送给大模型的完整消息列表,包括系统提示词和动态上下文。
+        通过组合静态系统模块和动态代理消息模块,生成最终的prompt。
 
+        Args:
+            task: 用户任务描述字符串
+            ctx: 会话上下文对象,包含历史对话、记忆等信息
+            **kwargs: 额外关键字参数(预留扩展)
+
+        Returns:
+            包含system message和user message的消息列表,用于调用大模型API
+        """
+
+        # 构建系统提示词的静态模块(不随任务变化), max_tools: 最大工具调用次数限制, workdir: 工作目录路径
         system_modules = dict(max_tools=self.max_tools,workdir=self.workdir)
+
+        # 构建代理消息的动态模块(随任务变化)
         agent_message_modules = dict(task=task)
-        
+
+        # 依次注入各类动态上下文到代理消息模块中
+
+        # 1. 注入代理上下文:当前任务状态、历史记录、记忆、计划等
         agent_message_modules.update(await self._get_agent_context(task, ctx=ctx))
+
+        # 2. 注入环境上下文:当前环境的配置、状态、可用资源等
         agent_message_modules.update(await self._get_environment_context(ctx=ctx))
+
+        # 3. 注入工具上下文:已加载工具的列表、描述、使用规则等
         agent_message_modules.update(await self._get_tool_context(ctx=ctx))
+
+        # 4. 注入技能上下文:已加载技能的元数据摘要(名称、描述、版本、路径等)
+        # 注意:这里注入的是简要信息,不是完整的SKILL.md内容
         agent_message_modules.update(await self._get_skill_context(ctx=ctx))
-        
+
+        # 通过prompt管理器组装最终的消息列表
+        # 将系统模块和代理模块填入Jinja2模板,生成system和user message
         messages = await prompt_manager.get_messages(
-            prompt_name=self.prompt_name,
-            system_modules=system_modules,
-            agent_modules=agent_message_modules,
+            prompt_name=self.prompt_name,         # 使用的prompt模板名称
+            system_modules=system_modules,        # 静态系统模块变量
+            agent_modules=agent_message_modules,  # 动态代理模块变量
         )
 
         return messages

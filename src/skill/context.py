@@ -106,14 +106,22 @@ class SkillContextManager(BaseModel):
             discovered = filtered  # 只保留过滤后的技能
 
         # 4. Build text representations, register versions, and store
+        # 遍历所有发现的技能,构建元数据摘要、注册版本并存储到内存
         for name, skill_config in discovered.items():
+            # 为当前技能构建简要元数据摘要(名称、描述、版本、路径等),用于注入到Agent prompt
+            # 注意:这里不是完整的SKILL.md内容,而是精简的上下文信息
             skill_config.text = self._build_text_representation(skill_config)
+
+            # 将技能配置存储到活跃技能字典中,供后续查询和使用
             self._skill_configs[name] = skill_config
 
+            # 初始化该技能的历史版本字典(如果不存在)
             if name not in self._skill_history_versions:
                 self._skill_history_versions[name] = {}
+            # 将当前版本添加到技能历史版本记录中,支持版本回溯
             self._skill_history_versions[name][skill_config.version] = skill_config
 
+            # 在版本管理器中注册该技能的版本,实现跨会话的版本追踪
             await version_manager.register_version("skill", name, skill_config.version)
             logger.info(f"| 🎯 Skill '{name}' v{skill_config.version} loaded from {skill_config.skill_dir}")
 
@@ -547,19 +555,45 @@ class SkillContextManager(BaseModel):
     # ------------------------------------------------------------------
 
     async def get_context(self, skill_names: Optional[List[str]] = None) -> str:
-        """Build the full skill context string for prompt injection."""
+        """Build the full skill context string for prompt injection.
+        
+        构建所有已加载技能的元数据摘要字符串,用于注入到Agent的prompt中。
+        每个技能仅包含简要信息(名称、描述、版本、路径等),而非完整的SKILL.md内容。
+        
+        Args:
+            skill_names: 可选的技能名称列表,指定需要包含哪些技能
+                        - 如果提供:只返回这些技能的上下文
+                        - 如果为None:返回所有已加载技能的上下文
+                        
+        Returns:
+            格式化后的技能上下文字符串,格式为:
+            <skill name="skill1">
+            {skill1的元数据摘要}
+            </skill>
+            <skill name="skill2">
+            {skill2的元数据摘要}
+            </skill>
+            ...
+            
+            如果没有加载任何技能,返回空字符串
+        """
+        # 如果没有加载任何技能,直接返回空字符串
         if not self._skill_configs:
             return ""
 
+        # 确定需要处理的技能列表:使用传入的参数或所有已加载的技能
         targets = skill_names if skill_names else list(self._skill_configs.keys())
         parts: List[str] = []
 
+        # 遍历目标技能,为每个技能构建XML格式的上下文字符串
         for name in targets:
             cfg = self._skill_configs.get(name)
             if cfg is None:
                 continue
+            # 使用cfg.text(由_build_text_representation生成的元数据摘要)构建XML标签
             parts.append(f"<skill name=\"{cfg.name}\">\n{cfg.text}\n</skill>")
 
+        # 将所有技能的XML片段用换行符连接成一个完整字符串
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
