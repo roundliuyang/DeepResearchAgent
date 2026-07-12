@@ -32,26 +32,34 @@ class TCPServer(BaseModel):
 
         
     async def initialize(self, tool_names: Optional[List[str]] = None):
-        """Initialize tools by names using tool context manager with concurrent support.
+        """
+        初始化工具服务器，设置工作目录并委托给 ToolContextManager 完成具体初始化。
         
         Args:
-            tool_names: List of tool names to initialize. If None, initialize all registered tools.
+            tool_names: 可选的工具名称列表，如果提供则只初始化指定的工具；
+                       如果为 None 则初始化所有已注册的工具
         """
         
+        # ===== 阶段1: 设置工作目录和文件路径 =====
+        # 构建工具存储的基础目录：workdir/{tag}/tool/
         self.base_dir = assemble_project_path(os.path.join(config.workdir, "tool"))
         os.makedirs(self.base_dir, exist_ok=True)
+        # 工具配置保存路径：workdir/{tag}/tool/tool.json
         self.save_path = os.path.join(self.base_dir, "tool.json")
+        # 工具契约文件路径：workdir/{tag}/tool/contract.md（包含所有工具的文本描述，用于发送给大模型）
         self.contract_path = os.path.join(self.base_dir, "contract.md")
         logger.info(f"| 📁 TCP Server base directory: {self.base_dir} with save path: {self.save_path} and contract path: {self.contract_path}")
         
-        # Initialize tool context manager
+        # ===== 阶段2: 创建并初始化工具上下文管理器 =====
+        # ToolContextManager 负责工具的加载、注册、版本管理、持久化等核心功能
         self.tool_context_manager = ToolContextManager(
             base_dir=self.base_dir,
             save_path=self.save_path,
             contract_path=self.contract_path,
-            model_name="openrouter/gemini-3-flash-preview",
-            embedding_model_name="openrouter/text-embedding-3-large",
+            model_name="openrouter/gemini-3-flash-preview",      # 用于生成工具描述的模型
+            embedding_model_name="openrouter/text-embedding-3-large",  # 用于工具向量嵌入的模型
         )
+        # 委托给 ToolContextManager 执行完整的初始化流程（加载工具、构建实例、保存配置等）
         await self.tool_context_manager.initialize(tool_names=tool_names)
         
         logger.info("| ✅ Tools initialization completed")

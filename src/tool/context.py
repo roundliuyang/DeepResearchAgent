@@ -82,14 +82,32 @@ class ToolContextManager(BaseModel):
         self._variables_lock = asyncio.Lock()  # Lock for get/set trainable variables
         
     async def initialize(self, tool_names: Optional[List[str]] = None):
-        """Initialize the tool context manager."""
+        """
+        初始化工具上下文管理器，完成工具的加载、注册和持久化。
         
-        # Register tool-related symbols for auto-injection in dynamic code
+        工作流程：
+        1. 注册动态代码所需的符号和上下文提供者
+        2. 初始化 FAISS 向量数据库服务（用于工具检索）
+        3. 从 TOOL 注册表加载内置工具
+        4. 从 JSON 文件加载之前保存的工具配置
+        5. 合并两个来源的工具配置（优先使用版本号更高的）
+        6. 按需过滤工具列表
+        7. 并发构建所有工具实例
+        8. 保存工具配置和契约文件
+        9. 注册清理回调函数
+        
+        Args:
+            tool_names: 可选的工具名称列表，如果提供则只初始化指定的工具；
+                       如果为 None 则初始化所有已注册的工具
+        """
+        
+        # ===== 阶段1: 注册动态代码符号 =====
+        # 为动态生成的工具代码自动注入必要的符号（如 TOOL 注册器、Tool 基类等）
         dynamic_manager.register_symbol("TOOL", TOOL)
         dynamic_manager.register_symbol("Tool", Tool)
         dynamic_manager.register_symbol("ToolResponse", ToolResponse)
         
-        # Register tool context provider for automatic import injection
+        # 注册工具上下文提供者，用于在动态加载工具类时自动注入导入语句
         def tool_context_provider():
             """Provide tool-related imports for dynamic tool classes."""
             return {
@@ -99,50 +117,58 @@ class ToolContextManager(BaseModel):
             }
         dynamic_manager.register_context_provider("tool", tool_context_provider)
         
-        # Initialize Faiss service for tool embedding
+        # ===== 阶段2: 初始化 FAISS 向量数据库服务 =====
+        # 用于工具的语义检索和相似度搜索
         self._faiss_service = FaissService(
             base_dir=self.base_dir,
             model_name=self.model_name
         )
         
-        # Load tools from TOOL registry
+        # ===== 阶段3: 从 TOOL 注册表加载内置工具 =====
+        # 扫描 src/tool 目录下所有通过 @TOOL.register_module 装饰器注册的工具类
         tool_configs = {}
         registry_tool_configs: Dict[str, ToolConfig] = await self._load_from_registry()
         tool_configs.update(registry_tool_configs)
         
-        # Load tools from code
+        # ===== 阶段4: 从 JSON 文件加载之前保存的工具配置 =====
+        # 这些是运行时动态注册的工具（如 MCP 代理工具），保存在 workdir/tool/tool.json 中
         code_tool_configs: Dict[str, ToolConfig] = await self._load_from_code()
         
-        # Merge code configs with registry configs, only override if code version is strictly greater
+        # ===== 阶段5: 合并两个来源的工具配置 =====
+        # 策略：当同一工具同时存在于注册表和 JSON 文件时，比较版本号，保留版本更高的
         for tool_name, code_config in code_tool_configs.items():
             if tool_name in tool_configs:
                 registry_config = tool_configs[tool_name]
-                # Compare versions: only override if code version is strictly greater
+                # 比较版本号：只有当 JSON 中的版本严格大于注册表版本时才覆盖
                 if version_manager.compare_versions(code_config.version, registry_config.version) > 0:
                     logger.info(f"| 🔄 Overriding tool {tool_name} from registry (v{registry_config.version}) with code version (v{code_config.version})")
                     tool_configs[tool_name] = code_config
                 else:
                     logger.info(f"| 📌 Keeping tool {tool_name} from registry (v{registry_config.version}), code version (v{code_config.version}) is not greater")
-                    # If versions are equal, update the history with registry config (which has real class, not dynamic)
+                    # 如果版本号相等，用注册表配置替换历史中的配置（注册表配置包含真实的类引用，而非动态类）
                     if version_manager.compare_versions(code_config.version, registry_config.version) == 0:
-                        # Replace the code config in history with registry config to preserve real class reference
+                        # 将历史中的动态类配置替换为注册表的真实类配置，避免类型问题
                         if tool_name in self._tool_history_versions:
                             self._tool_history_versions[tool_name][registry_config.version] = registry_config
             else:
-                # New tool from code, add it
+                # 新工具（仅存在于 JSON 文件中），直接添加到配置字典
                 tool_configs[tool_name] = code_config
         
-        # Filter tools by names if provided
+        # ===== 阶段6: 按需过滤工具列表 =====
+        # 如果指定了 tool_names 参数，则只保留这些工具的配置
         if tool_names is not None:
             tool_configs = {name: tool_configs[name] for name in tool_names}
         
-        # Build all tools concurrently with a concurrency limit
+        # ===== 阶段7: 并发构建所有工具实例 =====
+        # 为每个工具配置创建实际的 Tool 实例（调用 __init__ 和 initialize 方法）
         tool_names = list(tool_configs.keys())
         tasks = [
             self.build(tool_configs[name]) for name in tool_names
         ]
+        # 使用并发限制（最多 10 个任务同时执行）以避免资源竞争
         results = await gather_with_concurrency(tasks, max_concurrency=10, return_exceptions=True)
 
+        # 处理构建结果：成功的保存到 _tool_configs，失败的记录错误日志
         for tool_name, result in zip(tool_names, results):
             if isinstance(result, Exception):
                 logger.error(f"| ❌ Failed to initialize tool {tool_name}: {result}")
@@ -150,12 +176,14 @@ class ToolContextManager(BaseModel):
             self._tool_configs[tool_name] = result
             logger.info(f"| 🔧 Tool {tool_name} initialized")
         
-        # Save tool configs to json file
+        # ===== 阶段8: 持久化工具配置 =====
+        # 保存工具配置到 JSON 文件（workdir/tool/tool.json），支持断点续跑
         await self.save_to_json()
-        # Save contract to file
+        # 生成并保存工具契约文件（workdir/tool/contract.md），包含所有工具的文本描述，用于发送给大模型
         await self.save_contract(tool_names=tool_names)
         
-        # Register cleanup callback
+        # ===== 阶段9: 注册清理回调 =====
+        # 在程序退出时自动清理工具资源和 FAISS 服务
         async_atexit_register(self.cleanup)
         self._cleanup_registered = True
         
