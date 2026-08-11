@@ -87,14 +87,23 @@ class AgentContextManager(BaseModel):
         self._variables_lock = asyncio.Lock()  # Lock for get/set trainable variables
 
     async def initialize(self, agent_names: Optional[List[str]] = None) -> None:
-        """Initialize the agent context manager and all registered agents."""
+        """初始化所有已注册 Agent，完整流程：
+        1. 向 dynamic_manager 注册 Agent 相关符号（供动态代码注入使用）
+        2. 初始化 FAISS 向量检索服务
+        3. 从 AGENT 注册表加载所有已注册 Agent 类（_load_from_registry）
+        4. 从持久化 JSON 加载历史版本（_load_from_code）
+        5. 合并两者：取版本号更高者作为当前活跃版本
+        6. 按 agent_names 过滤后并发构建实例（gather_with_concurrency）
+        7. 持久化 agent.json + contract.md
+        """
 
-        # Register agent-related symbols for auto-injection in dynamic code
+        # ---- 步骤 1: 注册 Agent 相关符号到 dynamic_manager ----
+        # 动态加载的代码（如 optimizer 修改后的 Agent）需要这些符号才能正确 import
         dynamic_manager.register_symbol("AGENT", AGENT)
         dynamic_manager.register_symbol("Agent", Agent)
         dynamic_manager.register_symbol("AgentConfig", AgentConfig)
 
-        # Register agent context provider for automatic import injection
+        # 注册 context provider，使动态代码能通过 inject 自动获得 Agent 相关导入
         def agent_context_provider():
             return {
                 "AGENT": AGENT,
@@ -104,24 +113,25 @@ class AgentContextManager(BaseModel):
 
         dynamic_manager.register_context_provider("agent", agent_context_provider)
 
-        # Initialize Faiss service for agent embedding
+        # ---- 步骤 2: 初始化 FAISS 服务，用于 Agent 语义检索 ----
         self._faiss_service = FaissService(
             base_dir=self.base_dir,
             model_name=self.model_name,
         )
 
-        # Load agents from AGENT registry
+        # ---- 步骤 3: 从 AGENT 注册表加载所有已 @AGENT.register_module 装饰的类 ----
         agent_configs: Dict[str, AgentConfig] = {}
         registry_agent_configs: Dict[str, AgentConfig] = await self._load_from_registry()
         agent_configs.update(registry_agent_configs)
 
-        # Load agents from code JSON (including older versions / dynamic agents)
+        # ---- 步骤 4: 从 agent.json 加载历史版本（含动态生成的 Agent）----
         code_agent_configs: Dict[str, AgentConfig] = await self._load_from_code()
 
-        # Merge code configs with registry configs, only override if code version is strictly greater
+        # ---- 步骤 5: 合并注册表与 JSON，取版本号更高者 ----
         for agent_name, code_config in code_agent_configs.items():
             if agent_name in agent_configs:
                 registry_config = agent_configs[agent_name]
+                # 只有当 JSON 版本严格大于注册表版本时才覆盖
                 if (
                     version_manager.compare_versions(
                         code_config.version, registry_config.version
@@ -138,25 +148,25 @@ class AgentContextManager(BaseModel):
                         f"| 📌 Keeping agent {agent_name} from registry (v{registry_config.version}), "
                         f"code version (v{code_config.version}) is not greater"
                     )
-                    # If versions are equal, update the history with registry config (which has real class, not dynamic)
+                    # 版本相同时将注册表配置（持有真实类引用，非动态类）写入历史
                     if version_manager.compare_versions(code_config.version, registry_config.version) == 0:
-                        # Replace the code config in history with registry config to preserve real class reference
                         if agent_name in self._agent_history_versions:
                             self._agent_history_versions[agent_name][registry_config.version] = registry_config
             else:
                 agent_configs[agent_name] = code_config
 
-        # Filter agents by names if provided
+        # ---- 步骤 6: 按 agent_names 过滤并并发构建实例 ----
         if agent_names is not None:
             agent_configs = {name: agent_configs[name] for name in agent_names if name in agent_configs}
 
-        # Build all agents concurrently with a concurrency limit
+        # 并发构建，限制并发数为 10，避免同时初始化过多 Agent 压垂 LLM API
         names = list(agent_configs.keys())
         tasks = [self.build(agent_configs[name]) for name in names]
         results = await gather_with_concurrency(
             tasks, max_concurrency=10, return_exceptions=True
         )
 
+        # 将成功构建的 Agent 存入活跃注册表，失败的记录错误后跳过
         for agent_name, result in zip(names, results):
             if isinstance(result, Exception):
                 logger.error(f"| ❌ Failed to initialize agent {agent_name}: {result}")
@@ -164,19 +174,25 @@ class AgentContextManager(BaseModel):
             self._agent_configs[agent_name] = result
             logger.info(f"| 🎮 Agent {agent_name} initialized")
 
-        # Save agent configs to json file
+        # ---- 步骤 7: 持久化 agent.json + contract.md ----
         await self.save_to_json()
-        # Save contract to file
         await self.save_contract(agent_names=agent_names)
 
-        # Register async cleanup callback
+        # 注册进程退出时的清理回调，确保资源释放
         async_atexit_register(self.cleanup)
         self._cleanup_registered = True
 
         logger.info("| ✅ Agents initialization completed")
 
     async def _load_from_registry(self) -> Dict[str, AgentConfig]:
-        """Load agents from AGENT registry."""
+        """从 AGENT 注册表加载所有已注册 Agent。
+        
+        遍历 AGENT._module_dict（由 @AGENT.register_module() 装饰器填充），
+        对每个 Agent 类：
+          1. 从全局 config 取对应配置项（按 snake_case 类名查找）
+          2. 提取名称/描述/源码/参数等元数据
+          3. 构建 AgentConfig 并存入 _agent_history_versions
+        """
 
         agent_configs: Dict[str, AgentConfig] = {}
 
@@ -258,37 +274,22 @@ class AgentContextManager(BaseModel):
         return agent_configs
 
     async def _load_from_code(self):
-        """Load agents from code files.
+        """从持久化 agent.json 加载所有 Agent 历史版本。
         
-        JSON file content example:
+        JSON 结构：
         {
-            "metadata": {
-                "saved_at": str,  # "YYYY-MM-DD HH:MM:SS"
-                "num_agents": int,  # total agent count
-                "num_versions": int  # total version count
-            },
+            "metadata": { "saved_at", "num_agents", "num_versions" },
             "agents": {
                 "agent_name": {
                     "current_version": "1.0.0",
                     "versions": {
-                        "1.0.0": {
-                            "name": str,
-                            "description": str,
-                            "metadata": dict,
-                            "version": str,
-                            "cls": Type[Agent],
-                            "config": dict,
-                            "instance": Agent, # will be built when needed
-                            "function_calling": dict, 
-                            "text": str, 
-                            "args_schema": BaseModel,
-                            "code": str
-                        },
+                        "1.0.0": { ...AgentConfig fields... },
                         ...
                     }
                 }
             }
         }
+        返回：{agent_name: AgentConfig}，仅包含各 Agent 的当前版本
         """
         
         agent_configs: Dict[str, AgentConfig] = {}
@@ -392,13 +393,17 @@ class AgentContextManager(BaseModel):
             logger.warning(f"| ⚠️ Failed to add agent {agent_config.name} to FAISS index: {e}")
 
     async def build(self, agent_config: AgentConfig) -> AgentConfig:
-        """Create an agent instance and store it.
+        """根据 AgentConfig 创建 Agent 运行时实例。
+        
+        1. 若已有活跃实例则直接复用（幂等性保护）
+        2. 否则用 cls(**config) 实例化，并调用 initialize()（如存在）
+        3. 将实例挂载到 AgentConfig.instance 并存入 _agent_configs
         
         Args:
-            agent_config: Agent configuration
+            agent_config: Agent 配置（必须包含 cls 字段）
             
         Returns:
-            AgentConfig: Agent configuration with instance
+            AgentConfig: 挂载了 instance 的配置
         """
         if agent_config.name in self._agent_configs:
             existing_config = self._agent_configs[agent_config.name]
@@ -437,13 +442,13 @@ class AgentContextManager(BaseModel):
         override: bool = False,
         version: Optional[str] = None,
     ) -> AgentConfig:
-        """Register an agent class.
-
-        This will:
-        - Create (or reuse) an agent instance
-        - Create an `AgentConfig`
-        - Store it as the current config and append to version history
-        - Register the version in `version_manager` and FAISS index
+        """注册新 Agent（运行时动态注册，区别于启动时的注册表加载）。
+        
+        流程：
+        1. 实例化 Agent 类
+        2. 提取源码/参数，构建 function_calling / text / args_schema
+        3. 构建 AgentConfig 并写入 _agent_configs + _agent_history_versions
+        4. 注册版本号 + 入 FAISS 索引 + 持久化 JSON + 更新 contract.md
         """
         
         try:
@@ -524,36 +529,18 @@ class AgentContextManager(BaseModel):
             raise
 
     async def get(self, agent_name: str) -> Optional[Agent]:
-        """Get agent configuration by name
-        
-        Args:
-            agent_name: Agent name
-            
-        Returns:
-            Agent: Agent instance or None if not found
-        """
+        """【Read】获取 Agent 运行时实例，找不到返回 None"""
         agent_config = self._agent_configs.get(agent_name)
         if agent_config is None:
             return None
         return agent_config.instance if agent_config.instance is not None else None
     
     async def get_info(self, agent_name: str) -> Optional[AgentConfig]:
-        """Get agent info by name
-        
-        Args:
-            agent_name: Agent name
-            
-        Returns:
-            AgentConfig: Agent info or None if not found
-        """
+        """【Read】获取 Agent 完整配置（AgentConfig），找不到返回 None"""
         return self._agent_configs.get(agent_name)
     
     async def list(self) -> List[str]:
-        """Get list of registered agents
-        
-        Returns:
-            List[str]: List of agent names
-        """
+        """【Read】列出所有已注册 Agent 名称"""
         return [name for name in self._agent_configs.keys()]
 
     async def update(
@@ -564,19 +551,14 @@ class AgentContextManager(BaseModel):
         description: Optional[str] = None,
         code: Optional[str] = None,
     ) -> AgentConfig:
-        """Update an existing agent with new configuration and create a new version
+        """【Update】用新 class/config 更新已有 Agent，自动创建新版本。
         
-        Args:
-            agent_cls: New agent class with updated implementation
-            agent_config_dict: Configuration dict for agent initialization
-                   If None, will try to get from global config
-            new_version: New version string. If None, auto-increments from current version.
-            description: Description for this version update
-            code: Optional source code string. If provided, uses this instead of extracting from agent_cls.
-                  This is useful when agent_cls is dynamically created from code string.
-            
-        Returns:
-            AgentConfig: Updated agent configuration
+        流程：
+        1. 实例化新 Agent 类
+        2. 检查 Agent 是否已存在（不存在应使用 register）
+        3. 自动生成 patch 版本号（如 1.0.0 → 1.0.1）
+        4. 构建新 AgentConfig 并替换 _agent_configs 中的当前版本
+        5. 写入历史 + 注册版本 + 更新 FAISS + 持久化
         """
         try:
             if agent_config_dict is None:
@@ -675,16 +657,19 @@ class AgentContextManager(BaseModel):
         new_version: Optional[str] = None,
         new_config: Optional[Dict[str, Any]] = None,
     ) -> AgentConfig:
-        """Copy an existing agent configuration
+        """【Create（副本）】复制已有 Agent，可改名/改配置。
+        
+        同名复制：自动递增版本号（patch）
+        异名复制：为新名称生成初始版本号
         
         Args:
-            agent_name: Name of the agent to copy
-            new_name: New name for the copied agent. If None, uses original name.
-            new_version: New version for the copied agent. If None, increments version.
-            new_config: New configuration dict for the copied agent. If None, uses original config.
+            agent_name: 源 Agent 名称
+            new_name: 新名称；为 None 时复用原名
+            new_version: 新版本号；为 None 时自动生成
+            new_config: 合并到原配置上的新 dict
             
         Returns:
-            AgentConfig: New agent configuration
+            AgentConfig: 复制后的新配置
         """
         try:
             original_config = self._agent_configs.get(agent_name)
@@ -787,13 +772,13 @@ class AgentContextManager(BaseModel):
             raise
 
     async def unregister(self, agent_name: str) -> bool:
-        """Unregister an agent
+        """【Delete】从活跃注册表中移除 Agent（版本历史保留，可后续 restore）
         
         Args:
-            agent_name: Name of the agent to unregister
+            agent_name: 待注销的 Agent 名称
             
         Returns:
-            True if unregistered successfully, False otherwise
+            True 表示成功，False 表示 Agent 不存在
         """
         if agent_name not in self._agent_configs:
             logger.warning(f"| ⚠️ Agent {agent_name} not found")
@@ -801,7 +786,7 @@ class AgentContextManager(BaseModel):
         
         agent_config = self._agent_configs[agent_name]
         
-        # Remove from configs
+        # 从活跃注册表中移除（_agent_history_versions 中的历史保留不删）
         del self._agent_configs[agent_name]
 
         # Persist to JSON after unregister
@@ -813,16 +798,16 @@ class AgentContextManager(BaseModel):
         return True
 
     async def save_to_json(self, file_path: Optional[str] = None) -> str:
-        """Save all agent configurations with version history to JSON.
+        """将所有 Agent 配置（含全部历史版本）持久化到 agent.json。
         
-        Only saves basic configuration fields (name, description, version, config, etc.).
-        Instance is not saved as it's runtime state and will be recreated via build() on load.
+        注意：instance 不保存（运行时状态），加载时通过 build() 重新构建。
+        使用 file_lock 保证并发写入安全。
         
         Args:
-            file_path: File path to save to
+            file_path: 保存路径；为 None 时使用 self.save_path
             
         Returns:
-            Path to saved file
+            实际保存的文件路径
         """
         file_path = file_path if file_path is not None else self.save_path
         
@@ -985,15 +970,18 @@ class AgentContextManager(BaseModel):
     async def restore(
         self, agent_name: str, version: str, auto_initialize: bool = True
     ) -> Optional[AgentConfig]:
-        """Restore a specific version of an agent from history
+        """将 Agent 回滚到指定历史版本，并设为当前活跃版本。
+        
+        从 _agent_history_versions 中 O(1) 查找目标版本，
+        拷贝为新 AgentConfig 并替换 _agent_configs 中的当前项。
         
         Args:
-            agent_name: Name of the agent
-            version: Version string to restore
-            auto_initialize: Whether to automatically initialize the restored agent
+            agent_name: Agent 名称
+            version: 目标版本字符串（如 "1.0.0"）
+            auto_initialize: 是否自动构建实例
             
         Returns:
-            AgentConfig of the restored version, or None if not found
+            恢复后的 AgentConfig；找不到时返回 None
         """
         # Look up version from dict-based history (O(1) lookup)
         version_config = None
@@ -1235,9 +1223,9 @@ class AgentContextManager(BaseModel):
             )
 
     async def cleanup(self):
-        """Cleanup all active agents."""
+        """清理所有 Agent 状态：清空活跃注册表 + 版本历史 + FAISS 服务"""
         try:
-            # Clear all agent configs and version history
+            # 清空内存状态
             self._agent_configs.clear()
             self._agent_history_versions.clear()
                 
@@ -1250,15 +1238,15 @@ class AgentContextManager(BaseModel):
             logger.error(f"| ❌ Error during agent context manager cleanup: {e}")
             
     async def __call__(self, name: str, input: Dict[str, Any], ctx: SessionContext = None, **kwargs) -> Any:
-        """Call an agent by name
+        """按名称调用 Agent：查找实例并执行，透传 ctx 和额外参数
         
         Args:
-            name: Agent name
-            input: Input for the agent
-            ctx: Agent context
-            **kwargs: Additional keyword arguments forwarded to the agent
+            name: Agent 名称
+            input: 传给 Agent 的输入
+            ctx: 会话上下文；为 None 时自动创建
+            **kwargs: 透传给 Agent 的额外参数
         Returns:
-            Agent result
+            Agent 执行结果
         """
         if ctx is None:
             ctx = SessionContext()
