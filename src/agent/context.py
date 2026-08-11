@@ -872,19 +872,18 @@ class AgentContextManager(BaseModel):
     async def load_from_json(
         self, file_path: Optional[str] = None, auto_initialize: bool = True
     ) -> bool:
-        """Load agent configurations with version history from JSON.
+        """从 agent.json 加载 Agent 配置（含版本历史）。
         
-        Loads basic configuration only (instance is not saved, must be created via build()).
-        Only the latest version will be instantiated by default if auto_initialize=True.
+        instance 不在 JSON 中，需通过 build() 重建；
+        仅将 current_version 对应的版本设为活跃项，其余保留在历史中。
         
         Args:
-            file_path: File path to load from
-            auto_initialize: Whether to automatically create instance via build() after loading
+            file_path: 加载路径；为 None 时使用 self.save_path
+            auto_initialize: 是否自动调用 build() 构建实例
             
         Returns:
-            True if loaded successfully, False otherwise
+            True 表示加载成功，False 表示文件不存在或解析失败
         """
-        
         file_path = file_path if file_path is not None else self.save_path
         
         async with file_lock(file_path):
@@ -901,7 +900,7 @@ class AgentContextManager(BaseModel):
                 
                 for agent_name, agent_data in agents_data.items():
                     try:
-                        # Expected format: multiple versions stored as a dict {version_str: config_dict}
+                        # 每个 Agent 在 JSON 中格式：{"versions": {version_str: config_dict}, "current_version": str}
                         versions_data = agent_data.get("versions")
                         if not isinstance(versions_data, dict):
                             logger.warning(f"| ⚠️ Agent {agent_name} has invalid format for 'versions' (expected dict), skipping")
@@ -909,13 +908,14 @@ class AgentContextManager(BaseModel):
                         
                         current_version_str = agent_data.get("current_version")
                         
-                        # Load all versions
+                        # 遍历所有版本，找出 current_version 对应的配置作为活跃项；
+                        # 若无 current_version 字段，则取版本号最大者兜底
                         version_configs = []
                         latest_config = None
                         latest_version = None
                         
                         for version_str, config_dict in versions_data.items():
-                            # Ensure version field is present
+                            # 补齐缺失的 version 字段（以 JSON key 为准）
                             if "version" not in config_dict:
                                 config_dict["version"] = version_str
                             
@@ -926,7 +926,7 @@ class AgentContextManager(BaseModel):
                                 logger.warning(f"| ⚠️ Failed to load agent config for {agent_name}@{version_str}: {e}")
                                 continue
                             
-                            # Track latest version
+                            # 确定活跃版本：优先匹配 current_version_str，否则取版本号最大者
                             if latest_config is None or (
                                 current_version_str and agent_config.version == current_version_str
                             ) or (
@@ -938,20 +938,20 @@ class AgentContextManager(BaseModel):
                                 latest_config = agent_config
                                 latest_version = agent_config.version
                         
-                        # Store all versions in history (dict-based)
+                        # 将所有版本写入 _agent_history_versions（供 restore 查询）
                         self._agent_history_versions[agent_name] = {
                             cfg.version: cfg for cfg in version_configs
                         }
                         
-                        # Only set latest version as active
+                        # 仅将活跃版本设为 _agent_configs 中的当前项
                         if latest_config:
                             self._agent_configs[agent_name] = latest_config
                             
-                            # Register all versions to version manager (only version records)
+                            # 将所有历史版本注册到 version_manager（仅记录版本号，不构建实例）
                             for agent_config in version_configs:
                                 await version_manager.register_version("agent", agent_name, agent_config.version)
                             
-                            # Create instance if requested (instance is not saved in JSON, must be created via build)
+                            # auto_initialize=True 时构建实例（instance 不保存在 JSON 中，必须重建）
                             if auto_initialize and latest_config.cls is not None:
                                 await self.build(latest_config)
                             
@@ -1020,7 +1020,14 @@ class AgentContextManager(BaseModel):
         return restored_config
     
     async def save_contract(self, agent_names: Optional[List[str]] = None):
-        """Save the contract for an agent"""
+        """将所有活跃 Agent 的文本描述汇编为 contract.md，供 Planner 读取。
+        
+        Planner 调度任务时依赖 contract.md 了解各 Agent 的名称、描述和参数，
+        格式：每个 Agent 一段，以 "---\n" 分隔，前缀四位序号（0001/0002/...）。
+        
+        Args:
+            agent_names: 指定写入的 Agent；为 None 时写入全部活跃 Agent
+        """
         contract = []
         names = agent_names if agent_names is not None else list(self._agent_configs.keys())
         for index, agent_name in enumerate(names):
@@ -1028,8 +1035,11 @@ class AgentContextManager(BaseModel):
             if agent_info is None:
                 logger.warning(f"| ⚠️  Skipping agent '{agent_name}' in contract (not found or failed to create)")
                 continue
+            # agent_info.text: 由 dynamic_manager.build_text_representation 生成
+            # 包含 name / description / parameters 等 Planner 需要的可读信息
             text = agent_info.text
             contract.append(f"{index + 1:04d}\n{text}\n")
+        # 用 "---\n" 拼接各 Agent 段落，写入 contract.md
         contract_text = "---\n".join(contract)
         with open(self.contract_path, "w", encoding="utf-8") as f:
             f.write(contract_text)
