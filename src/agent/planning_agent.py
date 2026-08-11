@@ -315,6 +315,23 @@ class PlanFile:
         return lines
 
     def _render(self) -> str:
+        """将当前 PlanFile 状态全量渲染为 plan.md 文件内容。
+
+        输出结构（Cursor plan 格式）:
+            ---
+            name:          任务标题，截断至150字符（self.task_title）。
+            overview:      原始任务完整描述（self.full_task），经 YAML 转义。
+            todos:         由 self.rounds 通过 _build_todos() 自动构建。
+              - id:        格式 "step-{序号}-{agent_name}"，如 "step-1-tool_calling"。
+              - content:   "{agent_name}: {子任务描述[:200]}"。
+              - status:    results 中有 success=True/False 时为 "completed"，否则 "pending"。
+            isProject:     固定为 false（单任务计划，非多项目跟踪器）。
+            ---
+            # 标题
+            ## Execution Flow    由 _render_mermaid() 生成的 Mermaid 流程图。
+            ## Execution Log     由 _render_round() 生成的每轮执行详情。
+            ## Final Result      仅在 finalize() 设置 self.final_result 后才出现。
+        """
         todos = self._build_todos()
         esc = self._yaml_escape
 
@@ -518,8 +535,9 @@ class PlanningAgent(Agent):
             llm_output = await model_manager(
                 model=self.model_name,
                 messages=messages,
-                response_format=PlanDecision,
+                response_format=PlanDecision,    # 强制LLM输出PlanDecision结构
             )
+            # PlanningAgent LLM → 输出 dispatches=[{agent_name:"tool_calling", task:""Execute the hello world skill. Call the appropriate tool that prints or returns 'Hello, World!' or a similar greeting message.""}]
             decision: PlanDecision = llm_output.extra.parsed_model
         except Exception as exc:
             logger.error(f"| PlanningAgent LLM error: {exc}", exc_info=True)
@@ -543,11 +561,11 @@ class PlanningAgent(Agent):
             plan_file.update_last_analysis(decision.analysis)
 
         if decision.is_done:
-            plan_file.finalize(
+            plan_file.finalize(    # "done", 写入 final_result
                 result=decision.final_result or "",
                 success=True,
             )
-            await plan_file.save()
+            await plan_file.save()    # 第二次写盘，触发 _render() 全量重渲染
             logger.info("| PlanningAgent: task complete")
         elif decision.dispatches:
             delivery = "BROADCAST" if len(decision.dispatches) > 1 else "UNICAST"
@@ -571,6 +589,44 @@ class PlanningAgent(Agent):
         # ------------------------------------------------------------------
         # Return decision to the bus
         # ------------------------------------------------------------------
+        '''
+        decision.model_dump():
+            {
+                "thinking": "The task is to call the tool_calling agent to use a hello world skill. This is a single atomic sub-task. The only available agent is 'tool_calling', which can call tools. I will dispatch it now with a clear instruction to execute the hello world skill. No concurrency is possible here.",                  # LLM 推理过程
+                "analysis": "",                                                                      # 上一轮结果分析（第1轮为空）
+                "plan_update": "Dispatch the tool_calling agent to invoke the hello world skill.",   # 计划更新描述
+                "dispatches": [                                                                      # 本轮要派发的子任务
+                    {
+                        "agent_name": "tool_calling",
+                        "task": "Execute the skill that prints 'hello world'. Use any available tool or function to output the hello world message.",
+                        "files": []
+                    }
+                ],
+                "is_done": False,       # 是否全部完成
+                "final_result": None    # 最终结果（is_done=True 时才有值）
+            }
+        plan_file.path:
+            {
+                "final_result": null,
+                "full_task": "Call tool calling agent to use hello world skill.",
+                "path": "workdir/bus/agent/planning_agent\\session_20260811-212303_d18ef434.plan.md",
+                "rounds": [{
+                    "number": 1,
+                    "goal": "Dispatch the tool_calling agent to invoke the hello world skill.",
+                    "agents": [
+                        "tool_calling"
+                    ],
+                    "delivery": "any available tool or function to output the hello world message.",
+                    "results": {},
+                    "analysis": "",
+                    "timestamp": "2026-08-11T13:23:30Z"
+                }],
+                "session_id": "session_20260811-212303_d18ef434",
+                "status": "running",
+                "task_id": "task_20260811-212303_afab6d48",
+                "task_title": "Call tool calling agent to use hello world skill."
+            }
+        '''
         return AgentResponse(
             success=True,
             message=decision.plan_update,

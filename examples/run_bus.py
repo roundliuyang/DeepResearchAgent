@@ -125,6 +125,10 @@ async def main():
 
     # ------------------------------------------------------------------
     # 4. Submit to bus and await completion
+    # 调用链：run_bus.py → bus.submit() → _session_worker() → _run_planner_loop()
+    #    → _call_planner_raw()  [每轮调一次]
+    #           → acp(name="planning")
+    #               → PlanningAgent.__call__()
     # ------------------------------------------------------------------
     logger.info("| Submitting task to AgentBus...")
     response = await bus.submit(task, session_ctx=ctx, max_rounds=args.max_rounds)

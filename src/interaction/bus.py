@@ -321,15 +321,16 @@ class AgentBus:
     # ------------------------------------------------------------------
 
     async def _run_planner_loop(self, message: BusMessage) -> None:
-        """Drive the full planner→dispatch→collect→repeat cycle for one task.
+        """
+        驱动单个任务完整的 planner → dispatch → collect → repeat 循环。
 
-        This method is the heart of the bus.  It:
+        这个方法是整个总线（bus）的核心。它负责：
 
-        1. Calls the planner agent via ACP to get a ``PlanDecision``.
-        2. If ``is_done`` → resolve the caller's Future and return.
-        3. Otherwise, dispatch all listed sub-agents concurrently.
-        4. Feed results back to the planner in the next round.
-        5. Repeat until ``is_done`` or ``max_rounds`` is exhausted.
+        1. 通过 ACP 调用 planner agent，获取一个 ``PlanDecision``（计划决策）。
+        2. 如果 ``is_done`` 为真 → 解析调用方的 Future，并返回结果。
+        3. 否则，并发调度所有列出的子 agent 执行任务。
+        4. 将执行结果反馈给 planner，作为下一轮规划的输入。
+        5. 重复上述流程，直到 ``is_done`` 为真，或者达到 ``max_rounds``（最大轮数限制）。
         """
         # TTL check
         if message.is_expired():
@@ -406,6 +407,7 @@ class AgentBus:
 
             is_done = decision_dict.get("is_done", False)
             final_result = decision_dict.get("final_result")
+            # 从 planner 结果中提取 dispatches
             dispatches = decision_dict.get("dispatches", [])
             plan_update = decision_dict.get("plan_update", "")
 
@@ -478,6 +480,7 @@ class AgentBus:
             delivery = "BROADCAST" if len(agent_names) > 1 else "UNICAST"
             logger.info(f"| Bus: {delivery} → {agent_names}")
 
+            # 构造 BusMessage 并发派给各子 Agent
             sub_messages = [
                 BusMessage(
                     type=BusMessageType.PLAN,
@@ -616,6 +619,7 @@ class AgentBus:
             if extra_kwargs:
                 call_kwargs.update(extra_kwargs)
 
+            # _call_agent 通过 ACP 实际调用 ToolCallingAgent
             agent_result = await acp(
                 name=agent_name,
                 input={
