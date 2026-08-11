@@ -157,7 +157,7 @@ class PlanFile:
     def __init__(self, path: str, task: str, task_id: str, session_id: str) -> None:
         self.path = path
         self.full_task = task
-        self.task_title = (task[:70] + "...") if len(task) > 70 else task
+        self.task_title = (task[:150] + "...") if len(task) > 150 else task
         self.task_id = task_id
         self.session_id = session_id
         self.status = "running"
@@ -252,7 +252,7 @@ class PlanFile:
         agent_rounds = [r for r in self.rounds if r.agents]
 
         if not agent_rounds:
-            title = self.task_title[:40].replace('"', "'")
+            title = self.task_title.replace('"', "'")
             lines.append("  subgraph plan [Plan]")
             lines.append(f'    start(["{title}"])')
             if self.status in ("done", "failed"):
