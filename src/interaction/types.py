@@ -131,15 +131,29 @@ class BusMessage(BaseModel):
         delivery_mode: DeliveryMode = DeliveryMode.UNICAST,
         ttl: Optional[int] = None,
     ) -> "BusMessage":
-        """Build a TASK-type message from a Task payload."""
+        """根据顶层 Task 的内容构造一个 TASK 类型的总线消息。
+
+        这个便捷构造器主要供 AgentBus.submit() 使用：submit() 先把
+        Task.content 和 Task.files 包进 BusMessage.payload，然后把消息放入
+        当前 session 的队列。后续 _session_worker() 会取出这个 TASK 消息，
+        交给 _run_planner_loop()，再由 planner 进行任务分解和子 agent 调度。
+        """
         return cls(
+            # TASK 表示外部提交的顶层任务，第一站通常是 planner。
             type=BusMessageType.TASK,
+            # session_id 决定消息进入哪个 session 队列。
             session_id=session_id,
+            # task_id 用来把同一个顶层任务产生的多轮消息串起来。
             task_id=task_id,
+            # 顶层任务消息由 bus 创建，因此 sender 固定为 "bus"。
             sender="bus",
+            # submit() 中通常传入 [planner_name]，表示先交给 planner 处理。
             recipients=recipients or [],
+            # 默认 UNICAST，即点对点发给一个接收者。
             delivery_mode=delivery_mode,
+            # planner 会从 payload 中读取原始任务内容和附件文件列表。
             payload={"content": content, "files": files or []},
+            # 可选过期时间；超时消息会被 worker 解析为失败，避免调用方一直等待。
             ttl=ttl,
         )
 
