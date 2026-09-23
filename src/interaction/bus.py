@@ -121,12 +121,29 @@ class AgentBus:
     # ------------------------------------------------------------------
 
     async def initialize(self) -> None:
-        """Sync agent names from ACP into the bus registry."""
+        """从 ACP 获取已注册 Agent 的名称和能力描述，补充总线的 Agent 名录。
+
+        应在 acp.initialize(...) 完成后调用。本方法不创建 Agent 实例，
+        而是通过 acp.list() 获取名称，再通过 acp.get_info(name) 获取详情，
+        将其保存到 self._known_agents，格式为 {Agent 名称: 能力描述}。
+        例如，初始化后可包含 planning 和 tool_calling 两条记录。
+
+        后续 _run_planner_loop() 会根据该字典构造可用子 Agent 列表
+        （排除 planner 自身），供 planner 规划任务，并校验分派的 Agent 名称。
+
+        仅添加能获取到信息且名称尚未记录的 Agent；描述为空时保存空字符串。
+        已有记录不会被覆盖，也不会移除 ACP 中已不存在的 Agent。
+        同步过程中若发生异常，则记录警告并结束本次同步，不向调用方抛出；
+        异常发生前已添加的记录会保留。
+        """
         try:
+            # 获取 ACP 中已注册的 Agent 名称
             agent_names = await acp.list()
             for name in agent_names:
+                # 获取该 Agent 的信息，其中包含 description
                 info = await acp.get_info(name)
                 if info and name not in self._known_agents:
+                    # 实际赋值位置：Agent 名称作为键，能力描述作为值
                     self._known_agents[name] = info.description or ""
             logger.info(
                 f"| Bus: synced {len(self._known_agents)} agents from ACP: "
@@ -455,6 +472,12 @@ class AgentBus:
         # 整理总线已知的子 Agent 名称和能力描述，告诉 planner 可以分派给谁。
         # 列表不包含 planner 自身，并要求决策使用列表中的准确名称。
         sub_agent_lines = []
+        # 运行时示例：self._known_agents = {
+        #     "planning": "拆解任务，并决定下一步调用哪些子 Agent。"
+        #                 "返回一个 PlanDecision（计划决策），由 AgentBus 驱动整个执行循环。",
+        #     "tool_calling": "通过调用工具来完成任务的 Agent。",
+        # }
+        # name 是 Agent 名称，desc 是能力描述；下面会跳过 planning，保留 tool_calling。
         for name, desc in self._known_agents.items():
             if name == self.planner_name:
                 continue

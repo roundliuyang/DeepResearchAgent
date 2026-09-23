@@ -97,6 +97,10 @@ async def main():
     logger.info(f"| Environments ready: {ecp.list()}")
 
     logger.info("| Initializing agents (ACP)...")
+    # 根据 config.agent_names 异步初始化 ACP 管理的智能体：
+    # 合并代码注册表与持久化配置，优先采用较高版本，并发构建指定的 Agent 实例；
+    # 同步成功初始化的 Agent 注册信息，并保存配置快照 agent.json 和契约文档 contract.md。
+    # await 等待初始化流程结束，供后续 AgentBus 同步注册信息并调度智能体。
     await acp.initialize(agent_names=config.agent_names)
     logger.info(f"| Agents ready: {await acp.list()}")
 
