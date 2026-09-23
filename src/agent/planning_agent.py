@@ -385,14 +385,14 @@ class PlanFile:
 
 @AGENT.register_module(force=True)
 class PlanningAgent(Agent):
-    """Pure LLM planning agent.
+    """基于大模型的规划智能体，每次调用执行一轮规划。
 
-    One LLM call per invocation.  Returns a ``PlanDecision`` to the caller
-    (the AgentBus), which owns the multi-round loop and all dispatching.
+    每轮调用一次模型，根据任务、可用智能体和执行历史生成 PlanDecision，
+    并将其封装在 AgentResponse 中返回。AgentBus 负责多轮循环、执行子任务
+    和收集结果，本类负责决定下一步分派哪些任务或是否结束。
 
-    Also maintains a ``plan.md`` file that records every round.  The bus
-    feeds results back by calling this agent again with an updated context,
-    and the agent appends the new round to plan.md before returning.
+    同时维护计划文件：总线在下一次调用时传回上一轮执行结果，本类将其
+    回填到对应记录，再根据当前决策追加新轮次或写入最终结果并保存。
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
@@ -475,23 +475,36 @@ class PlanningAgent(Agent):
         ctx: Optional[SessionContext] = None,
         **kwargs,
     ) -> AgentResponse:
-        """Execute one planning round.
+        """执行一轮规划，更新计划文件，并向总线返回结构化决策。
 
-        Expected kwargs (set by the bus):
-            task_id (str):          top-level task identifier.
-            round_number (int):     current round (1-based).
-            max_rounds (int):       max rounds allowed.
-            agent_contract (str):   markdown description of available agents.
-            execution_history (str): plain-text log of all completed rounds.
-            round_results (dict):   agent_name → {success, result, error}
-                                    from the *previous* round (empty on round 1).
+        调用链：AgentBus -> acp(name="planning", ...) -> AgentContextManager
+        -> 当前实例的 __call__()。本次返回后，由总线读取决策并执行下一步。
+
+        Args:
+            task: 顶层任务文本。
+            files: 任务附件路径列表；当前方法接收该参数，但未将其加入模型消息。
+            ctx: 共享会话上下文；未提供时创建，用其 ID 区分会话的计划文件。
+            **kwargs: 总线传入的规划参数：
+                task_id: 顶层任务 ID，默认 "task_unknown"。
+                round_number: 当前轮数，从 1 开始，默认 1。
+                max_rounds: 最大规划轮数，默认 10，由总线控制循环上限。
+                agent_contract: 可用子智能体的名称与能力描述，默认空字符串。
+                execution_history: 已完成轮次的执行摘要，默认空字符串。
+                round_results: 上一轮结果，格式为
+                    {Agent 名称: {success, result, error}}，第一轮为空字典。
 
         Returns:
-            AgentResponse with extra.data["decision"] = PlanDecision dict.
+            AgentResponse，其 extra.data["decision"] 为 PlanDecision 字典，
+            extra.data["plan_path"] 为计划文件路径。
+
+        模型调用或读取解析结果失败时，构造 is_done=True 的兜底决策，
+        将错误说明写入 final_result，供总线结束本次任务。
         """
+        # 优先复用总线传入的上下文，确保多轮规划使用同一个会话 ID。
         if ctx is None:
             ctx = kwargs.get("ctx") or SessionContext()
 
+        # 读取本轮状态：轮数、可用 Agent、累计历史及上一轮的执行结果。
         task_id = kwargs.get("task_id", "task_unknown")
         round_number = kwargs.get("round_number", 1)
         max_rounds = kwargs.get("max_rounds", 10)
@@ -505,7 +518,7 @@ class PlanningAgent(Agent):
         )
 
         # ------------------------------------------------------------------
-        # Update plan.md with results from the PREVIOUS round
+        # 获取当前会话的计划文件，并回填上一轮子任务的执行结果。
         # ------------------------------------------------------------------
         plan_file = self.get_or_create_plan_file(ctx.id, task_id, task)
 
@@ -513,7 +526,7 @@ class PlanningAgent(Agent):
             plan_file.rounds[-1].results = round_results
 
         # ------------------------------------------------------------------
-        # Build LLM messages via prompt_manager
+        # 通过提示词模板组装模型消息：系统消息含 Agent 能力，任务消息含执行历史。
         # ------------------------------------------------------------------
         history_text = execution_history if execution_history else "(no rounds completed yet)"
 
@@ -529,18 +542,19 @@ class PlanningAgent(Agent):
         )
 
         # ------------------------------------------------------------------
-        # LLM call
+        # 调用模型生成本轮决策，由模型管理器按 PlanDecision 结构解析输出。
         # ------------------------------------------------------------------
         try:
             llm_output = await model_manager(
                 model=self.model_name,
                 messages=messages,
-                response_format=PlanDecision,    # 强制LLM输出PlanDecision结构
+                response_format=PlanDecision,    # 指定结构化响应格式
             )
-            # PlanningAgent LLM → 输出 dispatches=[{agent_name:"tool_calling", task:""Execute the hello world skill. Call the appropriate tool that prints or returns 'Hello, World!' or a similar greeting message.""}]
+            # 取得解析后的决策对象，包含 dispatches、is_done 和 final_result 等字段。
             decision: PlanDecision = llm_output.extra.parsed_model
         except Exception as exc:
             logger.error(f"| PlanningAgent LLM error: {exc}", exc_info=True)
+            # 生成终止决策，避免总线继续分派；最终结果携带模型调用失败的原因。
             decision = PlanDecision(
                 thinking=f"LLM call failed: {exc}",
                 analysis="",
@@ -553,21 +567,23 @@ class PlanningAgent(Agent):
         logger.info(f"| 📋 Plan: {decision.plan_update[:200]}")
 
         # ------------------------------------------------------------------
-        # Update plan.md with THIS round's decision
+        # 根据本轮决策更新计划文件：回填分析、记录分派或标记完成。
         # ------------------------------------------------------------------
 
-        # Backfill analysis onto previous round
+        # analysis 是对上一轮结果的评价，写回上一轮记录。
         if decision.analysis:
             plan_file.update_last_analysis(decision.analysis)
 
         if decision.is_done:
+            # 完成决策：记录最终结果，将计划标记为完成并保存。
             plan_file.finalize(    # "done", 写入 final_result
                 result=decision.final_result or "",
                 success=True,
             )
-            await plan_file.save()    # 第二次写盘，触发 _render() 全量重渲染
+            await plan_file.save()    # 渲染并保存最新计划
             logger.info("| PlanningAgent: task complete")
         elif decision.dispatches:
+            # 分派决策：记录本轮目标、Agent 和子任务，实际调用由 AgentBus 执行。
             delivery = "BROADCAST" if len(decision.dispatches) > 1 else "UNICAST"
             agent_names = [d.agent_name for d in decision.dispatches]
             subtasks = {d.agent_name: d.task for d in decision.dispatches}
@@ -578,16 +594,17 @@ class PlanningAgent(Agent):
                 agents=agent_names,
                 delivery_mode=delivery,
                 subtasks=subtasks,
-                results={},  # will be filled by the bus on the next round
+                results={},  # 下一轮调用时，用总线传回的 round_results 回填
             )
             plan_file.add_round(plan_round)
             await plan_file.save()
             logger.info(f"| PlanningAgent: dispatching {agent_names}")
         else:
+            # 未完成且没有分派项时仍保存现有计划，交由总线判断如何处理。
             await plan_file.save()
 
         # ------------------------------------------------------------------
-        # Return decision to the bus
+        # 将决策序列化并封装为 AgentResponse，交回总线处理。
         # ------------------------------------------------------------------
         '''
         decision.model_dump():

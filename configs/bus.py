@@ -27,10 +27,10 @@ memory_names = [
     "general_memory_system",
     "optimizer_memory_system",
 ]
-# Agents on the bus: planner + sub-agents
+# 要初始化的智能体名称列表
 agent_names = [
-    "planning",
-    "tool_calling",
+    "planning",        # 规划智能体：拆解任务、调度子智能体
+    "tool_calling",    # 工具调用智能体：调用工具执行任务
 ]
 # Tools available to sub-agents (not the planner — planner dispatches agents only)
 tool_names = [

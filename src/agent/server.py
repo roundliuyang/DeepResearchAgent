@@ -281,16 +281,29 @@ class ACPServer(BaseModel):
     # 调用转发
     # ======================================================================
     async def __call__(self, name: str, input: Dict[str, Any], **kwargs) -> Any:
-        """按名称调用 Agent，委托 ContextManager 查找实例并执行
-        
+        """接收 acp(...) 调用，转交给 AgentContextManager 执行指定智能体。
+
+        acp 是 ACPServer 实例，因此 await acp(name=..., input=...) 会进入
+        本方法。随后调用 AgentContextManager.__call__()，由它按 name
+        查找已初始化的 Agent 实例，并执行：
+            await agent_instance(**input, ctx=ctx, **其他参数)
+
+        例如 name="planning" 时，会调用该名称对应的规划智能体实例，
+        将 input 中的 task、files 展开为参数，并传入上下文和本轮规划参数。
+
         Args:
-            name: Agent 名称
-            input: 传给 Agent 的输入参数
-            **kwargs: 透传给 Agent 的额外参数（如 ctx）
-            
+            name: 已初始化的 Agent 名称，例如 "planning" 或 "tool_calling"。
+            input: Agent 的输入参数字典，由 ContextManager 展开为关键字参数。
+            **kwargs: 额外调用参数，例如 ctx、round_number、execution_history。
+                ctx 由 ContextManager 接收，为 None 或未提供时创建新的会话上下文。
+
         Returns:
-            Agent 执行结果
+            Agent 的执行结果，原样返回。例如规划智能体返回 AgentResponse，
+            其中 extra.data["decision"] 保存本轮规划决策。
+
+        调用异常向上传播，由调用方负责处理。
         """
+        # 调用管理器对象的 __call__()，等待目标 Agent 执行结束后返回其结果。
         return await self.agent_context_manager(name, input, **kwargs)
 
 

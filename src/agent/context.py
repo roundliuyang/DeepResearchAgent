@@ -1248,30 +1248,62 @@ class AgentContextManager(BaseModel):
             logger.error(f"| ❌ Error during agent context manager cleanup: {e}")
             
     async def __call__(self, name: str, input: Dict[str, Any], ctx: SessionContext = None, **kwargs) -> Any:
-        """按名称调用 Agent：查找实例并执行，透传 ctx 和额外参数
-        
+        """查找指定名称的 Agent 实例，展开输入参数并等待其执行结果。
+
+        由 ACPServer.__call__() 转发调用。执行前应已完成目标 Agent 的
+        初始化；本方法从活跃注册表中获取实例，再触发该实例的 __call__()。
+
         Args:
-            name: Agent 名称
-            input: 传给 Agent 的输入
-            ctx: 会话上下文；为 None 时自动创建
-            **kwargs: 透传给 Agent 的额外参数
+            name: 已初始化的 Agent 名称，例如 "planning"。
+            input: 传给 Agent 的输入字典，例如 {"task": "执行任务", "files": None}。
+            ctx: 会话上下文；为 None 时创建新上下文，否则复用传入的对象。
+            **kwargs: 额外执行参数，例如 round_number、agent_contract、
+                execution_history 和 round_results，原样传给目标 Agent。
+
         Returns:
-            Agent 执行结果
+            目标 Agent 的返回值。PlanningAgent 返回 AgentResponse，
+            其中 extra.data["decision"] 包含本轮规划决策。
+
+        本方法不捕获异常；查找后的属性访问或 Agent 执行异常会向上传播。
         """
+        # 复用调用方的会话上下文，使本轮规划与子 Agent 执行共享会话信息；
+        # 调用方未提供上下文时，为此次调用创建一个。
         if ctx is None:
             ctx = SessionContext()
         
+        # 从 self._agent_configs 按名称读取 AgentConfig，其中保存版本和实例。
+        # 例如 name="planning" 时，取得先前初始化的规划智能体配置。
         agent_info = await self.get_info(name)
         
-        # Agent args: ctx + any extra kwargs from the caller
+        # 将上下文和额外参数组合起来，稍后与 input 一起展开传给智能体。
         agent_args = {
             "ctx": ctx,
             **kwargs,
         }
         
+        # 取出已构建的实例；此处复用实例，不会重新创建 PlanningAgent。
         version = agent_info.version
         agent_instance = agent_info.instance
         logger.info(f"| ✅ Using agent {name}@{version}")
         
+        # planning 调用示例（省略部分规划参数）：
+        # 上层调用：
+        # await acp(
+        #     name="planning",
+        #     input={"task": "调用工具智能体执行 hello world 技能", "files": None},
+        #     ctx=ctx,
+        #     round_number=1,
+        #     max_rounds=10,
+        # )
+        # ACPServer 转发到本方法后，agent_instance 为该名称对应的规划智能体。
+        # 下面的 ** 展开字典，等价于对该实例执行：
+        # await agent_instance.__call__(
+        #     task="调用工具智能体执行 hello world 技能",
+        #     files=None,
+        #     ctx=ctx,
+        #     round_number=1,
+        #     max_rounds=10,
+        # )
+        # 从而进入 PlanningAgent.__call__()：组装提示词、调用模型生成
+        # PlanDecision、更新计划文件，最后返回包含决策的 AgentResponse。
         return await agent_instance(**input, **agent_args)
-

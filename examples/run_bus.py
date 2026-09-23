@@ -112,6 +112,10 @@ async def main():
     # 2. Sync agent registry into the bus
     # ------------------------------------------------------------------
     logger.info("| Initializing AgentBus...")
+    # 在 ACP 初始化完成后，异步获取已注册 Agent 的名称和能力描述，
+    # 将尚未记录的 Agent 补充到总线的 _known_agents 名录中。
+    # 后续 Planner 根据该名录了解可用子 Agent 的能力，总线据此校验分派目标。
+    # await 等待名录同步流程结束，再继续构建和提交任务。
     await bus.initialize()
     logger.info(f"| Bus agents: {bus.list_agents()}")
 

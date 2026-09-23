@@ -483,6 +483,8 @@ class AgentBus:
                 continue
             sub_agent_lines.append(f"- **{name}**: {desc or 'No description'}")
         if sub_agent_lines:
+            # 'Available agents (use these EXACT names in dispatches):
+            # - **tool_calling**: A tool calling agent that can call tools to complete tasks.'
             agent_contract = (
                 "Available agents (use these EXACT names in dispatches):\n"
                 + "\n".join(sub_agent_lines)
@@ -503,8 +505,8 @@ class AgentBus:
             )
             self._log_event(message, "planner_round_start", detail=str(round_num))
 
-            # 1. 将原始任务、可用 Agent、历史摘要和最近一轮结果交给 planner，
-            #    让它判断任务是否完成，以及本轮需要分派哪些子任务。
+            # 1. 将原始任务、可用智能体及其能力描述、历史执行摘要和最近一轮结果传给 Planner，
+            #    由它判断任务是否完成，并返回本轮需要分派的子任务或最终结果。这也明确了 decision_dict 承载的是本轮规划决策
             decision_dict = await self._call_planner_raw(
                 task_content=task_content,
                 task_files=task_files,
@@ -538,6 +540,33 @@ class AgentBus:
             final_result = decision_dict.get("final_result")
             dispatches = decision_dict.get("dispatches", [])
             plan_update = decision_dict.get("plan_update", "")
+
+            # 两轮规划示例（仅保留关键字段，任务描述作简化）：
+            # 第 1 轮（round 1/10）：分派任务，调用工具智能体执行 hello world 技能。
+            # {
+            #     "analysis": "",
+            #     "plan_update": "分派 tool_calling 智能体执行 hello world 技能。",
+            #     "is_done": False,
+            #     "dispatches": [{
+            #         "agent_name": "tool_calling",
+            #         "files": [],
+            #         "task": "执行 hello world 技能，返回问候语。",
+            #     }],
+            #     "final_result": "",
+            # }
+            # 执行结果：跳过 if is_done，dispatches 非空，继续校验目标 Agent，
+            # 调用 tool_calling 执行子任务，收集结果并写入执行历史，再进入第 2 轮。
+            #
+            # 第 2 轮（round 2/10）：正确标记完成，并提供最终结果。
+            # {
+            #     "analysis": "上一轮执行成功，返回了有效的问候语。",
+            #     "plan_update": "All sub-tasks completed.",
+            #     "is_done": True,
+            #     "dispatches": [],
+            #     "final_result": "技能执行成功：Hey there, World! 👋 Welcome aboard!",
+            # }
+            # 执行结果：进入 if is_done，向 submit() 交付 success=True 和
+            # final_result，然后 return；不会触发空分派错误，也不会进入第 3 轮。
 
             # 2. planner 判断任务已完成：将正常结果写入 Future，然后结束循环。
             #    final_result 为空值时使用 plan_update；此分支不再执行 dispatches。
@@ -711,7 +740,7 @@ class AgentBus:
         )
 
     # ------------------------------------------------------------------
-    # Internal — call planner via ACP and extract PlanDecision dict
+    # 内部方法：通过 ACP 调用规划智能体，提取 PlanDecision 决策字典
     # ------------------------------------------------------------------
 
     async def _call_planner_raw(
@@ -721,8 +750,26 @@ class AgentBus:
         ctx: Optional[SessionContext],
         **kwargs,
     ) -> Optional[Dict[str, Any]]:
-        """Call the planner via ACP and return the raw PlanDecision dict."""
+        """通过 ACP 调用规划智能体，返回响应中的原始决策字典。
+
+        ACP 根据 self.planner_name 路由到已初始化的规划智能体。
+        Planner 将 PlanDecision 序列化到 AgentResponse.extra.data["decision"]，
+        本方法仅提取该字段，供上层规划循环解析和处理，不在此校验决策结构。
+
+        Args:
+            task_content: 传给规划智能体的任务文本。
+            task_files: 任务关联的文件路径列表；为空时向智能体传入 None。
+            ctx: 共享会话上下文；原样传递给 ACP，可为 None。
+            **kwargs: 透传给 ACP 的规划参数，例如 task_id、round_number、
+                max_rounds、agent_contract、execution_history 和 round_results。
+
+        Returns:
+            Planner 返回的 decision 字典；响应缺少有效的 extra、data 或
+            decision 字段时返回 None。调用或提取过程中发生 Exception 时，
+            记录包含堆栈的错误日志并返回 None，交由调用方处理。
+        """
         try:
+            # 按名称调用规划智能体，传入任务、附件、会话上下文和本轮规划参数。
             agent_response = await acp(
                 name=self.planner_name,
                 input={
@@ -732,10 +779,13 @@ class AgentBus:
                 ctx=ctx,
                 **kwargs,
             )
+            # 决策位于结构化扩展数据中；缺少扩展数据时跳过提取。
             if hasattr(agent_response, "extra") and agent_response.extra:
+                # data 为空时使用空字典，缺少 decision 键时 get() 返回 None。
                 data = agent_response.extra.data or {}
                 return data.get("decision")
         except Exception as exc:
+            # 将调用或响应提取异常记录下来，使用 None 表示本次未取得决策。
             logger.error(f"| Bus: planner call failed: {exc}", exc_info=True)
         return None
 
