@@ -23,7 +23,8 @@ use_local_proxy = True
 version = "0.1.0"
 # model_name = "openrouter/gemini-3-flash-preview"
 # model_name = "openrouter/claude-sonnet-4.5"
-model_name = "openrouter/deepseek-v4-flash"
+# model_name = "openrouter/deepseek-v4-flash"
+model_name = "openrouter/qwen3.7-max"
 
 env_names = [
     "file_system"
