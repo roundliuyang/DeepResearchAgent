@@ -221,12 +221,31 @@ class PlanFile:
     # -- persistence -------------------------------------------------------
 
     async def save(self) -> None:
+        """将当前计划的完整内容渲染为 Markdown，并保存到 self.path。
+
+        首次保存时创建文件，后续保存覆盖原有内容。等待写盘完成后返回，
+        目录创建、渲染或写入失败时，异常向调用方传播。
+        """
+        # 确保计划文件所在目录存在；exist_ok=True 表示目录已存在时不报错。
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        # 将内存中的任务信息、各轮计划与结果、最终答复渲染成完整 Markdown。
         content = self._render()
+        # 在线程中执行同步文件写入，避免写盘操作阻塞事件循环；await 等待写入完成。
+        # _write_sync() 使用 "w" 模式：文件不存在则创建，存在则覆盖全部内容。
         await asyncio.to_thread(self._write_sync, content)
 
     def _write_sync(self, content: str) -> None:
+        """将完整的计划文本同步写入 self.path，由 save() 在线程中调用。
+
+        Args:
+            content: _render() 生成的完整 Markdown 内容。
+
+        文件不存在时创建，存在时覆盖原有内容；写入失败时异常向调用方传播。
+        """
+        # 使用 UTF-8 保存中文及特殊字符；"w" 模式会清空已有文件，再写入新内容。
+        # with 在代码块结束或发生异常时自动关闭文件，fh 是打开的文件对象。
         with open(self.path, "w", encoding="utf-8") as fh:
+            # 写入全部计划文本，而不是在旧内容末尾追加。
             fh.write(content)
 
     # -- context for LLM (plain text, no mermaid) --------------------------
@@ -359,7 +378,7 @@ class PlanFile:
 
         输出结构（Cursor plan 格式）:
             ---
-            name:          任务标题，截断至150字符（self.task_title）。
+            name:          任务标题，超过150字符时取前150字符并追加省略号。
             overview:      原始任务完整描述（self.full_task），经 YAML 转义。
             todos:         由 self.rounds 通过 _build_todos() 自动构建。
               - id:        格式 "step-{序号}-{agent_name}"，如 "step-1-tool_calling"。
@@ -372,50 +391,62 @@ class PlanFile:
             ## Execution Log     由 _render_round() 生成的每轮执行详情。
             ## Final Result      仅在 finalize() 设置 self.final_result 后才出现。
         """
+        # 根据各轮子任务及其执行结果生成待办项，包含 id、content 和 status。
         todos = self._build_todos()
+        # 保存 YAML 转义函数的引用，供下方处理描述文本中的引号、换行等字符。
         esc = self._yaml_escape
 
-        # --- YAML frontmatter (Cursor plan format) ---
+        # 1. 组装文件头部的 YAML 元数据，以 --- 开始，记录任务名称和完整描述。
+        # lines 中每个元素是一段文本，最后统一用换行符连接。
         lines: List[str] = [
             "---",
             f"name: {self.task_title}",
             f'overview: "{esc(self.full_task)}"',
         ]
         if todos:
+            # 每个子任务输出一个 YAML 列表项；缩进表示字段属于同一个待办项。
             lines.append("todos:")
             for t in todos:
                 lines.append(f'  - id: {t["id"]}')
                 lines.append(f'    content: "{esc(t["content"])}"')
                 lines.append(f'    status: {t["status"]}')
         else:
+            # 尚无子任务时显式输出空列表，保持文件头结构完整。
             lines.append("todos: []")
+        # 标记为非项目计划，并用 --- 结束 YAML 文件头；空行分隔正文。
         lines.append("isProject: false")
         lines.append("---")
         lines.append("")
 
-        # --- Title ---
+        # 2. 输出 Markdown 一级标题，使用任务标题。
         lines.append(f"# {self.task_title}")
         lines.append("")
 
-        # --- Execution Flow (Mermaid) ---
+        # 3. 输出执行流程章节，辅助方法生成 Mermaid 代码块及流程节点。
         lines.append("## Execution Flow")
         lines.append("")
+        # += 将辅助方法返回的多行文本逐项加入 lines。
         lines += self._render_mermaid()
         lines += ["", ""]
 
-        # --- Execution Log ---
+        # 4. 输出执行日志，按 rounds 中的记录顺序展示各轮任务与结果。
         lines += ["## Execution Log", ""]
         if not self.rounds:
+            # 尚未添加轮次记录时显示“规划进行中”的占位提示。
             lines += ["*(planning in progress...)*", ""]
         else:
             for r in self.rounds:
+                # 将该轮目标、分派对象、子任务、执行结果和分析转换为 Markdown。
                 lines += self._render_round(r)
 
-        # --- Final Result ---
+        # 5. 已设置最终结果时输出总结章节；None 表示尚未提供最终结果。
+        # 空字符串也满足此条件，此时仍会生成章节标题。
         if self.final_result is not None:
+            # done 显示 Completed，其他状态在此分支中显示 Failed。
             tag = "Completed" if self.status == "done" else "Failed"
             lines += [f"## Final Result — {tag}", "", self.final_result, ""]
 
+        # 将各段文本拼接为完整 Markdown 字符串；本方法只渲染，写盘由 save() 完成。
         return "\n".join(lines)
 
 
@@ -480,7 +511,7 @@ class PlanningAgent(Agent):
         await super().initialize()
 
     # ------------------------------------------------------------------
-    # plan.md lifecycle (called by the bus via kwargs)
+    # 计划文件生命周期：由本智能体的 __call__() 根据会话和任务信息管理
     # ------------------------------------------------------------------
 
     def get_or_create_plan_file(
@@ -489,15 +520,38 @@ class PlanningAgent(Agent):
         task_id: str,
         task: str,
     ) -> PlanFile:
-        """Return the existing PlanFile for a session, or create one."""
+        """获取当前会话的计划对象；尚未缓存时创建并保存到内存中。
+
+        同一会话的多轮规划复用同一个 PlanFile，以保留之前的轮次和结果。
+        此方法只创建内存对象、确定文件路径；实际文件由后续调用
+        await plan_file.save() 时创建或更新，不会在此读取已有磁盘文件。
+
+        Args:
+            session_id: 会话 ID，用作缓存键及文件名的前缀。
+            task_id: 顶层任务 ID，仅在首次创建计划对象时保存。
+            task: 原始任务文本，用于首次创建对象时设置标题和任务描述。
+
+        Returns:
+            该会话对应的 PlanFile。已缓存时直接返回原对象，
+            不会用本次传入的 task_id 或 task 覆盖原有内容。
+        """
+        # 以 session_id 判断是否为本会话首次创建计划对象。
         if session_id not in self._plan_files:
+            # 文件名为“会话 ID.plan.md”，存放在智能体配置的 workdir 下。
+            # 若 workdir 是相对路径，则相对于进程运行时的工作目录解析。
+            # 例如从 examples 目录运行，workdir="workdir/bus/agent/planning_agent"：
+            # examples/workdir/bus/agent/planning_agent/
+            #     session_20260924-112903_e1f66418.plan.md
             plan_path = os.path.join(self.workdir, f"{session_id}.plan.md")
+            # 创建内存中的计划状态：保存任务信息，初始轮次为空、状态为 running。
+            # 后续规划会向该对象添加轮次、回填结果，再通过 save() 写入磁盘。
             self._plan_files[session_id] = PlanFile(
                 path=plan_path,
                 task=task,
                 task_id=task_id,
                 session_id=session_id,
             )
+        # 首轮返回新建对象，后续轮次返回同一会话已缓存的对象。
         return self._plan_files[session_id]
 
     def remove_plan_file(self, session_id: str) -> None:
@@ -519,6 +573,20 @@ class PlanningAgent(Agent):
 
         调用链：AgentBus -> acp(name="planning", ...) -> AgentContextManager
         -> 当前实例的 __call__()。本次返回后，由总线读取决策并执行下一步。
+
+        PlanFile 内容填充示例（第 1 轮分派，第 2 轮确认完成）：
+            1. 首次创建计划对象：get_or_create_plan_file() 内调用 PlanFile.__init__()，
+               保存任务标题和原始任务描述，供渲染文件标题、name 和 overview。
+            2. 第 1 轮生成分派决策：构建 PlanRound，再调用 add_round()，
+               填入 Round 1 的计划说明、目标 Agent 和子任务。
+            3. 第 2 轮接收上轮结果：plan_file.rounds[-1].results = round_results，
+               填入 Round 1 的执行结果，例如 Result 中的问候语。
+            4. 第 2 轮生成结果分析：update_last_analysis(decision.analysis)，
+               填入 Round 1 的 Analysis 执行评价。
+            5. 第 2 轮确认完成：finalize(result=..., success=True)，
+               填入最终结果，并将计划状态标记为 done。
+            上述操作先修改内存对象；save() 调用 _render() 生成完整 Markdown，
+            再写入文件。第 2 轮未分派新任务，因此不会新增 Round 2 执行记录。
 
         Args:
             task: 顶层任务文本。
@@ -560,8 +628,14 @@ class PlanningAgent(Agent):
         # ------------------------------------------------------------------
         # 获取当前会话的计划文件，并回填上一轮子任务的执行结果。
         # ------------------------------------------------------------------
+        # 【创建/复用 PlanFile】首轮创建内存对象，填入原始任务、任务 ID、会话 ID，
+        # 并确定路径 self.workdir/<session_id>.plan.md；后续轮次复用同一对象。
+        # 此时尚未写盘，文件的创建和更新由下方 await plan_file.save() 完成。
         plan_file = self.get_or_create_plan_file(ctx.id, task_id, task)
 
+        # 【填充执行结果】总线已执行上一轮子任务，将 success/result/error 传回。
+        # 例如第 2 轮把 tool_calling 返回的问候语写入 Round 1.results，
+        # 保存后显示在该轮的 Result 中；首轮无历史结果，跳过此步骤。
         if round_results and plan_file.rounds:
             plan_file.rounds[-1].results = round_results
 
@@ -610,17 +684,21 @@ class PlanningAgent(Agent):
         # 根据本轮决策更新计划文件：回填分析、记录分派或标记完成。
         # ------------------------------------------------------------------
 
-        # analysis 是对上一轮结果的评价，写回上一轮记录。
+        # 【填充结果分析】把当前决策对上一轮的评价写入最后一条轮次记录的 analysis，
+        # 保存后显示为该轮的 Analysis；没有已有轮次时，方法内部不作修改。
         if decision.analysis:
             plan_file.update_last_analysis(decision.analysis)
 
         if decision.is_done:
-            # 完成决策：记录最终结果，将计划标记为完成并保存。
+            # 【填充最终结果】设置 PlanFile.final_result，并将 status 设为 done。
+            # 此分支不会添加新的 PlanRound：例如第 2 轮确认完成，文件仍只有 Round 1。
             plan_file.finalize(    # "done", 写入 final_result
                 result=decision.final_result or "",
                 success=True,
             )
-            await plan_file.save()    # 渲染并保存最新计划
+            # 【保存完成状态】_render() 根据全部内存数据生成 Markdown，再覆盖写盘。
+            # 文件包含已回填的结果、分析及 Final Result — Completed，流程图也随之更新。
+            await plan_file.save()
             logger.info("| PlanningAgent: task complete")
         elif decision.dispatches:
             # 分派决策：记录本轮目标、Agent 和子任务，实际调用由 AgentBus 执行。
@@ -628,6 +706,9 @@ class PlanningAgent(Agent):
             agent_names = [d.agent_name for d in decision.dispatches]
             subtasks = {d.agent_name: d.task for d in decision.dispatches}
 
+            # 【填充本轮计划】将模型的分派决策转换为一条执行记录，
+            # 保存轮号、计划目标、Agent 名称、分派方式和各 Agent 的子任务描述。
+            # 此刻子任务尚未执行，results 为空；analysis 和 timestamp 使用默认值。
             plan_round = PlanRound(
                 number=round_number,
                 goal=decision.plan_update,
@@ -636,11 +717,15 @@ class PlanningAgent(Agent):
                 subtasks=subtasks,
                 results={},  # 下一轮调用时，用总线传回的 round_results 回填
             )
+            # 将本轮记录追加到 PlanFile.rounds，保留先前轮次的内容。
             plan_file.add_round(plan_round)
+            # 【保存分派计划】首轮在此创建磁盘文件，后续轮次覆盖保存完整内容。
+            # _render() 自动生成任务标题、todos、执行流程图及各轮执行日志。
             await plan_file.save()
             logger.info(f"| PlanningAgent: dispatching {agent_names}")
         else:
-            # 未完成且没有分派项时仍保存现有计划，交由总线判断如何处理。
+            # 未完成且没有分派项时不新增轮次，仍保存已回填的结果和分析，
+            # 交由总线判断如何处理。
             await plan_file.save()
 
         # ------------------------------------------------------------------
