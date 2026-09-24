@@ -447,11 +447,24 @@ class ToolCallingAgent(Agent):
                 "reasoning": "Reached the maximum number of steps."
             }
         
-        # Get memory system name
+        # 工具步骤循环已结束，取得当前 Agent 使用的记忆系统名称。
         memory_name = self.memory_name
         
-        # Add task end event and end session (only if use_memory is enabled)
+        # 【任务结束记忆处理】启用记忆时，先记录结束事件，再等待记忆处理和保存。
+        # 此处位于返回 AgentResponse 之前；done 工具执行完毕不代表已返回给总线。
+        # 实际运行示例（本次子任务在 Step 5 完成，且启用了记忆）：
+        # Step 5 调用 done
+        #   → 退出工具步骤循环
+        #   → 添加 TASK_END 事件
+        #   → 等待后台记忆处理并保存
+        #   → 保存 tracer，返回 AgentResponse 给总线
+        #   → 总线进入第 2 轮 Planner，判断整个任务是否完成。
+        # 因此，done 工具执行完之后，程序还可能继续调用模型处理记忆，
+        # 并不会立刻返回给 Planner；这部分模型调用不计入工具循环的 Step 数。
         if self.use_memory and memory_name:
+            # 将最终 response（done、result、reasoning）记录为 TASK_END 事件。
+            # GeneralMemorySystem.add_event() 会保存事件并启动后台记忆处理：
+            # 判断是否需要提炼摘要和经验信息，需要时再调用模型进行提炼。
             await memory_manager.add_event(
                 memory_name=memory_name,
                 step_number=step_number,
@@ -462,7 +475,9 @@ class ToolCallingAgent(Agent):
                 ctx=ctx
             )
             
-            # End session (automatically saves memory to JSON)
+            # GeneralMemorySystem.end_session() 最多等待当前登记的后台任务 60 秒，
+            # 随后保存记忆 JSON 并清理会话缓存；因此这里可能仍有模型调用和等待。
+            # 完成本段并保存 tracer 后，才返回 AgentResponse；总线随后进入下一轮规划。
             await memory_manager.end_session(memory_name=memory_name, ctx=ctx)
         
         # 最终保存tracer,确保所有记录都已持久化
