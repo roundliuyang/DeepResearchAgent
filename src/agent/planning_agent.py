@@ -67,23 +67,60 @@ class SubTaskDispatch(BaseModel):
 
 
 class PlanDecision(BaseModel):
-    """Structured output the LLM produces for each planning round.
+    """大模型在每一轮规划中生成的结构化决策。
 
-    The AgentBus reads this to determine what to dispatch next.
+    AgentBus 读取 is_done 判断是否完成，否则根据 dispatches 分派子任务。
+    thinking 说明当前决策依据，analysis 评价上一轮结果，plan_update 概括计划。
+
+    第 1 轮示例：分派任务。
+        {
+            "thinking": "任务需要执行 hello world 技能，可交给 tool_calling。",
+            "analysis": "",
+            "plan_update": "调用工具智能体生成问候语。",
+            "dispatches": [{
+                "agent_name": "tool_calling",
+                "task": "执行 hello world 技能并返回问候语。",
+                "files": [],
+            }],
+            "is_done": False,
+            "final_result": None,
+        }
+    执行结果：总线调用 tool_calling，收集结果后进入下一轮规划。
+
+    第 2 轮示例：提交最终结果。
+        {
+            "thinking": "所需问候语已生成，可以结束任务。",
+            "analysis": "上一轮执行成功，返回了有效的问候语。",
+            "plan_update": "所有子任务已完成。",
+            "dispatches": [],
+            "is_done": True,
+            "final_result": "技能执行成功：Hey there, World! 👋 Welcome aboard!",
+        }
+    执行结果：总线交付最终结果并退出循环，不再分派子任务。
+
+    注意：Field 的 description 会作为结构化输出说明提供给模型。
+    “完成时分派列表为空、最终结果必填”是描述中的要求，当前类未定义
+    跨字段校验器来强制检查这两个条件。
     """
 
+    # 当前决策的依据；总线不会根据这段文字判断任务是否完成。
     thinking: str = Field(
         description="Chain-of-thought reasoning about the current state."
     )
+    # 回顾上一轮子任务的执行情况，例如成功、失败或仍缺少哪些结果；首轮为空。
     analysis: str = Field(
         description=(
             "Evaluation of the previous round's results. "
             "Leave empty on the first round."
         ),
     )
+    # 本轮更新后的整体计划概述，用于日志和计划记录。
+    # 总线在完成分支中还会将其作为 final_result 为空时的备用结果。
     plan_update: str = Field(
         description="Updated high-level description of the overall plan."
     )
+    # 本轮要执行的子任务列表；每项包含目标 Agent 名称、任务描述和附件路径。
+    # default_factory=list 为每个决策创建独立的空列表，避免共享可变默认值。
     dispatches: List[SubTaskDispatch] = Field(
         default_factory=list,
         description=(
@@ -91,10 +128,13 @@ class PlanDecision(BaseModel):
             "run concurrently on the bus.  Must be empty when is_done=True."
         ),
     )
+    # 整个原始任务的完成标记，不是某个子任务的成功标记。
+    # 默认 False；总线为 True 时交付结果，为 False 时继续检查分派列表。
     is_done: bool = Field(
         default=False,
         description="Set True only when the entire original task is fully complete.",
     )
+    # 面向用户的最终答复；规划过程中可为 None，完成时应汇总实际执行结果。
     final_result: Optional[str] = Field(
         default=None,
         description="Comprehensive final answer.  Required when is_done=True.",
