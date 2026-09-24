@@ -18,7 +18,8 @@ log_path = "bus.log"
 
 use_local_proxy = True
 version = "0.1.0"
-model_name = "openrouter/deepseek-v4-flash"
+# model_name = "openrouter/deepseek-v4-flash"
+model_name = "openrouter/qwen3.7-max"
 
 env_names = [
     "file_system",
@@ -42,6 +43,12 @@ tool_names = [
 ]
 skill_names = [
     "hello-world",
+    "Skywork Design",
+    "Skywork Document",
+    "Skywork Excel",
+    "skywork-music-maker",
+    "Skywork-ppt",
+    "Skywork Search",
 ]
 
 # -----------------TOOL CONFIG-----------------
