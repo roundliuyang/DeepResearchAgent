@@ -122,7 +122,7 @@ async def main():
     # ------------------------------------------------------------------
     # 3. Build task
     # ------------------------------------------------------------------
-    task_content = "Call tool calling agent to use hello world skill."
+    task_content = "当前项目有多少个 skill 技能"
 
     ctx = SessionContext()
     task = Task(content=task_content, session_id=ctx.id)
