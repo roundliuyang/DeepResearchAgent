@@ -681,8 +681,8 @@ class AgentBus:
                 for d in dispatches
             ]
 
-            # 并发调用本轮所有目标 Agent，并等待所有调用结束。
-            # 返回值按输入顺序排列；子调用抛出的异常也作为列表项收集。
+            # 并发执行本轮 dispatches 中的任务，全部结束后才进入下一轮；依赖任务由 Planner 分轮。
+            # 结果按输入顺序返回， return_exceptions=True,将子调用抛出的异常也作为结果列表项收集
             raw_responses = await asyncio.gather(
                 *[
                     self._call_agent(m.recipients[0], m, ctx=ctx)
