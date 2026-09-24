@@ -691,11 +691,16 @@ class AgentBus:
                 return_exceptions=True,
             )
 
-            # 执行结果示例（省略消息 ID、时间等元数据）：
+            # 完整执行结果示例（保留全部字段及原始值，按字段换行展示）：
             # 本轮只有一个 tool_calling 子任务，因此返回含一个 BusMessage 的列表。
             # raw_responses = [
             #     BusMessage(
+            #         id="msg_20260924-105051_7c3974ce",
             #         type=BusMessageType.RESPONSE,
+            #         session_id="session_20260924-104855_91e0e90b",
+            #         task_id="task_20260924-104855_8555236e",
+            #         correlation_id="corr_20260924-104920_cb1b1ebb",
+            #         parent_id="msg_20260924-104920_c7a98686",
             #         sender="tool_calling",
             #         recipients=["bus"],
             #         delivery_mode=DeliveryMode.UNICAST,
@@ -708,6 +713,10 @@ class AgentBus:
             #             ),
             #             "error": None,
             #         },
+            #         created_at=datetime.datetime(
+            #             2026, 9, 24, 2, 50, 51, 246489, tzinfo=datetime.timezone.utc
+            #         ),
+            #         ttl=None,
             #     ),
             # ]
             # 含义：tool_calling 已成功执行技能，并向 bus 返回问候语。
@@ -834,7 +843,7 @@ class AgentBus:
         return None
 
     # ------------------------------------------------------------------
-    # Internal — call any agent via ACP → BusMessage
+    # 内部方法：通过 ACP 调用指定 Agent，将执行结果封装为总线消息
     # ------------------------------------------------------------------
 
     async def _call_agent(
@@ -844,19 +853,39 @@ class AgentBus:
         ctx: Optional[SessionContext] = None,
         extra_kwargs: Optional[Dict[str, Any]] = None,
     ) -> BusMessage:
-        """Call one agent via ACP, wrapping the result in a BusMessage.
+        """执行一个子任务，并将目标 Agent 的返回值转换为 BusMessage。
 
-        Never raises — errors are returned as ERROR-type BusMessages.
+        从消息中提取任务和附件，通过 ACP 按名称调用已初始化的 Agent。
+        本方法处理一次调用；多个子任务的并发调度由上层 asyncio.gather() 负责。
+
+        Args:
+            agent_name: 目标 Agent 名称，例如 "tool_calling"。
+            message: 子任务消息，payload.content 为任务文本，payload.files 为附件。
+            ctx: 共享会话上下文，传给 ACP；为 None 时由 ACP 的上下文管理器创建。
+            extra_kwargs: 传给 Agent 的额外参数；复制到新字典后展开传递。
+
+        Returns:
+            正常返回时生成 RESPONSE 消息，payload 包含 success、result 和 error。
+            Agent 返回 success=False 时仍为 RESPONSE，但 error 会记录失败说明。
+            try 块内发生 Exception 时生成 ERROR 消息，保存异常文本。
+
+        例如 tool_calling 成功返回问候语后，上层会收到 payload 为
+        {"success": True, "result": "Hey there, World! 👋 Welcome aboard!",
+         "error": None} 的 RESPONSE 消息，供下一轮 Planner 分析。
+        取消等不属于 Exception 的异常不在此处捕获。
         """
+        # 记录本次分派事件及目标名称，方便追踪子任务的执行过程。
         self._log_event(message, "agent_dispatched", agent_name=agent_name)
         logger.info(f"| Bus: dispatching → '{agent_name}'")
 
         try:
+            # 复制额外参数，避免修改调用方传入的字典；未提供时使用空字典。
             call_kwargs: Dict[str, Any] = {}
             if extra_kwargs:
                 call_kwargs.update(extra_kwargs)
 
-            # _call_agent 通过 ACP 实际调用 ToolCallingAgent
+            # 按名称找到 Agent 实例，将消息中的 content 映射为其 task 参数。
+            # 例如 agent_name="tool_calling" 时，最终进入 ToolCallingAgent.__call__()。
             agent_result = await acp(
                 name=agent_name,
                 input={
@@ -867,10 +896,15 @@ class AgentBus:
                 **call_kwargs,
             )
 
+            # 优先读取返回对象的 success 属性；没有该属性时使用对象的布尔值。
             success = getattr(agent_result, "success", bool(agent_result))
+            # 优先读取 message 属性作为结果；没有该属性时使用对象的字符串表示。
             result_data = getattr(agent_result, "message", str(agent_result))
+            # 成功时无错误信息；返回失败时，将结果文本同时作为错误说明。
             error_str = None if success else result_data
 
+            # 封装为 RESPONSE：保留会话、任务和关联 ID，以目标 Agent 为发送者。
+            # parent_id 指向输入的子任务消息，便于追溯该结果对应哪次分派。
             return BusMessage.response_message(
                 session_id=message.session_id,
                 task_id=message.task_id,
@@ -883,6 +917,8 @@ class AgentBus:
             )
 
         except Exception as exc:
+            # 调用或结果封装过程中抛出普通异常时，记录堆栈并返回 ERROR 消息。
+            # 上层可将该错误与其他子任务结果一起收集，再交给 Planner 判断下一步。
             logger.error(f"| Bus: agent '{agent_name}' raised: {exc}", exc_info=True)
             return BusMessage.error_message(
                 session_id=message.session_id,
