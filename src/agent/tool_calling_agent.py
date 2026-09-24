@@ -395,6 +395,21 @@ class ToolCallingAgent(Agent):
         messages = await self._get_messages(enhanced_task, ctx=ctx)
         
         # ===== 主循环:执行思考-行动步骤 =====
+        # 实际运行示例（2026-09-24，任务：“当前项目有多少个 skill 技能”）：
+        # 会话 session_20260924-203532_64f4f8b1，模型 openrouter/qwen3.7-max。
+        # Step 1（20:35:39）：3 次 bash 调用，查看 default_skills 目录，
+        #   列出 src/skill 的直接子目录，搜索 tool_calling_agent 工作目录中的技能路径。
+        # Step 2（20:35:54）：4 次 bash 调用，搜索项目中的技能目录及 SKILL.md，
+        #   查看 src/skill 目录并读取 __init__.py；发现 7 个技能定义文件。
+        # Step 3（20:36:17）：4 次 bash 调用，分别查看并搜索 workdir/bus/skill/
+        #   和 skills/，核对运行时技能数据与其他资源目录。
+        # Step 4（20:36:27）：3 次 bash 调用，通过 python3 读取 skill.json 的
+        #   前 3000 个字符，用 find + sort 再次列出 SKILL.md，并查看 vendor 目录。
+        # Step 5（20:36:41）：调用 done，提供 result 和 reasoning，
+        #   返回“共 7 个技能”及技能列表；done=True，结束子任务循环。
+        # 随后进行任务结束记忆处理，并由总线第 2 轮 Planner 确认完成。
+        # 本次是 5 个模型行动步骤、14 次 bash 调用及 1 次 done 调用；
+        # 一个 Step 可以包含多个 action，不等同于一次工具调用，也不要求跑满 50 步。
         step_number = 0      # 步骤计数器
         
         while step_number < self.max_steps:
