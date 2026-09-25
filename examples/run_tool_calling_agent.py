@@ -70,14 +70,6 @@ async def main():
     await tcp.initialize(tool_names=config.tool_names)
     logger.info(f"| ✅ Tools initialized: {await tcp.list()}")
     
-    # Auto-import MCP connections if configured
-    mcp_connections = getattr(config, 'mcp_connections', None)
-    if mcp_connections and 'mcp_importer' in config.tool_names:
-        logger.info("| 🔌 Auto-importing MCP connections...")
-        result = await tcp(name='mcp_importer', input={'connections': mcp_connections})
-        logger.info(f"| ✅ MCP auto-import: {result.message}")
-        logger.info(f"| ✅ Tools after MCP import: {await tcp.list()}")
-    
     # Initialize skills
     logger.info("| 🎯 Initializing skills...")
     # 例如 ['hello-world']

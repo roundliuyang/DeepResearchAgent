@@ -33,13 +33,17 @@ class TCPServer(BaseModel):
         
     async def initialize(self, tool_names: Optional[List[str]] = None):
         """
-        初始化工具服务器，设置工作目录并委托给 ToolContextManager 完成具体初始化。
+        初始化本地工具，再导入配置的 MCP 服务，统一注册到 TCP。
         
         Args:
             tool_names: 可选的工具名称列表，如果提供则只初始化指定的工具；
                        如果为 None 则初始化所有已注册的工具
         """
         
+        mcp_connections = getattr(config, "mcp_connections", None)
+        if mcp_connections and tool_names is not None and "mcp_importer" not in tool_names:
+            raise ValueError("mcp_connections requires mcp_importer in tool_names")
+
         # ===== 阶段1: 设置工作目录和文件路径 =====
         # 构建工具存储的基础目录：workdir/{tag}/tool/
         self.base_dir = assemble_project_path(os.path.join(config.workdir, "tool"))
@@ -61,6 +65,14 @@ class TCPServer(BaseModel):
         )
         # 委托给 ToolContextManager 执行完整的初始化流程（加载工具、构建实例、保存配置等）
         await self.tool_context_manager.initialize(tool_names=tool_names)
+
+        # MCP 工具依赖本地导入器，必须在工具上下文初始化完成后注册。
+        if mcp_connections:
+            logger.info("| Initializing MCP tools...")
+            result = await self(name="mcp_importer", input={"connections": mcp_connections})
+            if not result.success:
+                raise RuntimeError(result.message)
+            logger.info(f"| MCP tools ready: {result.message}")
         
         logger.info("| ✅ Tools initialization completed")
         

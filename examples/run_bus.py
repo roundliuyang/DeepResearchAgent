@@ -132,8 +132,26 @@ async def main():
         "返回实际命令、脚本输出中的页数及每页标题，然后调用 done 完成。"
     )
 
+    # 测试本地 stdio MCP：通过代理调用数学服务。
+    task_content2 = (
+        "使用 mcp_local_math 工具测试本地 stdio MCP 服务。"
+        '实际调用 action="add"，args={"a": 2, "b": 3}，验证结果是否为 5。'
+        "返回工具名、调用参数和实际结果，不要自行计算代替工具调用。"
+        "验证后调用 done 完成；调用失败则如实报告错误。"
+    )
+
+    # 测试远程 HTTP MCP：查询上海天气。
+    task_content3 = (
+        "使用 mcp_weather 工具测试远程天气 MCP 服务。"
+        '实际调用 action="get_current_weather"，args={"lat": 31.2304, "lon": 121.4737}。'
+        "返回实际数据中的温度、相对湿度、风速及 period 数据时间，并标明单位。"
+        "不要用模型知识代替查询，也不要将预报模型数据称为实时地面观测。"
+        "查询成功后调用 done 完成；调用失败或达到免费额度时如实报告，不编造天气。"
+    )
+
+    # 测试时将下方 Task 的 content 改为 task2 或 task3。
     ctx = SessionContext()
-    task = Task(content=task_content, session_id=ctx.id)
+    task = Task(content=task_content3, session_id=ctx.id)
 
     logger.info(f"| Task: {task.content}")
     logger.info(f"| Session: {ctx.id}")

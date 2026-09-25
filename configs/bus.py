@@ -40,7 +40,21 @@ tool_names = [
     "done",
     "todo",
     "skill_generator",
+    "mcp_importer",
 ]
+# stdio 由客户端启动本地子进程；HTTP 直接连接远程 MCP 服务。
+mcp_connections = {
+    "local_math": {
+        "transport": "stdio",
+        "command": "/Users/yly/miniconda3/envs/DeepResearchAgent/bin/python",
+        "args": ["/Users/xx/DeepResearchAgent/servers/math_server.py"],
+    },
+    "weather": {
+        "transport": "streamable_http",
+        "url": "https://pixelgust.com/mcp",
+        "timeout": 30,
+    },
+}
 skill_names = [
     "hello-world",
     "Skywork Design",
