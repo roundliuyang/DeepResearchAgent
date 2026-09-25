@@ -122,7 +122,15 @@ async def main():
     # ------------------------------------------------------------------
     # 3. Build task
     # ------------------------------------------------------------------
-    task_content = "当前项目有多少个 skill 技能"
+    task_content = (
+        "使用现有 Skywork-ppt 技能的本地 info 功能，检查 "
+        f"{root}/tests/files/skywork_yaml_validation.pptx。"
+        "先阅读该技能的 SKILL.md 和 workflow_local.md，再实际运行其 "
+        "scripts/local_pptx_ops.py info --file 命令。"
+        f"Python 使用 {sys.executable}。"
+        "仅检查本地文件，不调用远程生成接口，不修改文件。"
+        "返回实际命令、脚本输出中的页数及每页标题，然后调用 done 完成。"
+    )
 
     ctx = SessionContext()
     task = Task(content=task_content, session_id=ctx.id)

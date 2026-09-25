@@ -129,3 +129,4 @@ dirtyjson>=1.0.8
 backtrader
 empyrical-reloaded
 polars
+PyYAML>=6.0

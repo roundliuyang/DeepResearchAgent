@@ -4,6 +4,7 @@ import os
 import json
 import re
 import shutil
+import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -166,7 +167,7 @@ class SkillContextManager(BaseModel):
 
         name = frontmatter.get("name", skill_dir.name)
         description = frontmatter.get("description", "")
-        version = frontmatter.get("version", "1.0.0")
+        version = str(frontmatter.get("version", "1.0.0"))
         require_grad = str(frontmatter.get("require_grad", "false")).lower() == "true"
         metadata = {k: v for k, v in frontmatter.items() if k not in ("name", "description", "version", "require_grad")}
 
@@ -251,8 +252,15 @@ class SkillContextManager(BaseModel):
 
     @staticmethod
     def _parse_frontmatter(text: str) -> tuple[Dict[str, Any], str]:
-        """Split YAML frontmatter (between --- delimiters) from the markdown body."""
-        pattern = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+        """分离文件头与正文，使用安全 YAML 解析保留多行文本、列表和嵌套结构。
+
+        无文件头时返回原文；YAML 无效或顶层不是字典时明确报错。
+        支持 UTF-8 BOM、CRLF 换行，以及结束分隔符后无换行的文件。
+        """
+        pattern = re.compile(
+            r"\A\ufeff?---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)",
+            re.DOTALL | re.MULTILINE,
+        )
         match = pattern.match(text)
 
         if not match:
@@ -261,14 +269,15 @@ class SkillContextManager(BaseModel):
         yaml_block = match.group(1)
         body = text[match.end():]
 
-        frontmatter: Dict[str, Any] = {}
-        for line in yaml_block.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if ":" in line:
-                key, _, value = line.partition(":")
-                frontmatter[key.strip()] = value.strip()
+        # safe_load 不构造任意 Python 对象，并按 YAML 语义解析引号、缩进与类型。
+        try:
+            frontmatter = yaml.safe_load(yaml_block)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Invalid YAML frontmatter: {exc}") from exc
+        if frontmatter is None:
+            frontmatter = {}
+        if not isinstance(frontmatter, dict) or any(not isinstance(k, str) for k in frontmatter):
+            raise ValueError("YAML frontmatter must be a mapping with string keys")
 
         return frontmatter, body
 
