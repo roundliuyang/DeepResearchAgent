@@ -601,7 +601,11 @@ class ModelManager:
                 "model_type": "chat/completions",
                 "reasoning": {
                     "reasoning": {
-                        "enabled": True
+                        "enabled": True,
+                        # 封顶 reasoning: qwen 偶发思考失控狂奔(实测可达 7~9 万字符/占满 16384 预算)
+                        # 导致正文 content 为空。上限 8192 既保留规划所需的深度思考,
+                        # 又保证正文恒有 ≥(max_completion_tokens-8192) 预算, 从根上消除空正文失败。
+                        "max_tokens": 8192
                     }
                 },
                 "temperature": self.default_temperature,
