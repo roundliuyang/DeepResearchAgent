@@ -184,20 +184,41 @@ class ToolCallingAgent(Agent):
             logger.info(f"| 🤖 Calling model: {self.model_name}")
 
             # 调用模型管理器,发送messages并期望返回ThinkOutput格式的响应
-            think_output = await model_manager(
+            model_response = await model_manager(
                 model=self.model_name,        # 使用的模型名称
                 messages=messages,            # 包含skill元数据的prompt
                 response_format=ThinkOutput   # 期望的结构化输出格式
             )
-            # 解析模型响应,提取Pydantic模型对象
-            think_output = think_output.extra.parsed_model
+            # 解析模型响应,提取Pydantic模型对象(可能为 None:结构化输出偶发失败)
+            think_output = model_response.extra.parsed_model if model_response.extra else None
 
-            # 从结构化输出中提取各个字段
-            thinking = think_output.thinking      # 模型的思考过程
-            evaluation_previous_goal = think_output.evaluation_previous_goal   # 对前一步的评价
-            memory = think_output.memory          # 记忆内容
-            next_goal = think_output.next_goal    # 下一步目标
-            actions = think_output.actions        # 要执行的行动列表
+            # ===== 阶段2准备: 存储每个行动的执行结果(提前初始化,便于判空分支注入反馈) =====
+            action_results = []
+
+            # 【判空】qwen 等模型偶发 reasoning 失控返回空正文(finish_reason=error)时,
+            # parsed_model 为 None。此时不能直接访问 .thinking 崩溃;改为记录可读失败,
+            # 并作为一条 system 反馈写入记忆回灌下一轮,避免 NoneType 崩溃与无反馈空耗。
+            if think_output is None:
+                err_msg = model_response.message or "model returned no parsable structured output"
+                logger.error(f"| ⚠️ 模型未返回可解析的 ThinkOutput,跳过本步并反馈下一轮重试: {err_msg}")
+                thinking = ""
+                evaluation_previous_goal = ""
+                memory = ""
+                next_goal = "重新输出严格符合 ThinkOutput schema 的 JSON。"
+                actions = []
+                action_results.append({
+                    "type": "system",
+                    "name": "model_error",
+                    "args": "",
+                    "output": f"上一轮模型输出无法解析为 ThinkOutput({err_msg})。请严格输出符合 schema 的 JSON。",
+                })
+            else:
+                # 从结构化输出中提取各个字段
+                thinking = think_output.thinking      # 模型的思考过程
+                evaluation_previous_goal = think_output.evaluation_previous_goal   # 对前一步的评价
+                memory = think_output.memory          # 记忆内容
+                next_goal = think_output.next_goal    # 下一步目标
+                actions = think_output.actions        # 要执行的行动列表
 
             # 将思考过程保存到记录中
             record_data["thinking"] = thinking
@@ -211,7 +232,6 @@ class ToolCallingAgent(Agent):
             logger.info(f"| 🔧 Actions to execute: {actions}")
             
             # ===== 阶段2: 依次执行大模型返回的行动 =====
-            action_results = []     # 存储每个行动的执行结果
             
             for i, action in enumerate(actions):
                 # 解析行动的各个字段

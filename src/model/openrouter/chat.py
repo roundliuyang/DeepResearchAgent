@@ -178,6 +178,34 @@ class ChatOpenRouter(BaseModel):
 
         return reasoning
 
+    def _log_structured_output_failure(
+        self,
+        stage: str,
+        content: Optional[str],
+        finish_reason: Optional[str],
+        usage: Optional[Dict[str, Any]],
+        reasoning: Optional[str],
+        error: Optional[BaseException],
+    ) -> None:
+        """诊断日志：结构化输出解析失败时打印关键信息。
+
+        用于定位真实原因：区分“空内容 / 畸形或被截断的 JSON / schema 不符”，
+        并通过 finish_reason 与 reasoning_tokens 判断是否为 token 预算截断。
+        """
+        usage = usage or {}
+        cd = usage.get("completion_tokens_details", {}) or {}
+        logger.error(
+            f"| \U0001F50E [structured-output-failed:{stage}] "
+            f"finish_reason={finish_reason}, "
+            f"completion_tokens={usage.get('completion_tokens')}, "
+            f"reasoning_tokens={cd.get('reasoning_tokens')}, "
+            f"max_completion_tokens={self.max_completion_tokens}, "
+            f"reasoning_len={len(reasoning or '')}, "
+            f"content_len={len(content or '')}, "
+            f"content_preview={(content or '')[:200]!r}, "
+            f"error={error}"
+        )
+
     async def _build_params(
         self,
         messages: List[Message],
@@ -387,6 +415,9 @@ class ChatOpenRouter(BaseModel):
             elif response_format and isinstance(response_format, type) and issubclass(response_format, BaseModel):
                 content = message.content or ""
                 if not content:
+                    self._log_structured_output_failure(
+                        "empty-content", content, finish_reason, usage, reasoning, None
+                    )
                     return LLMResponse(
                         success=False,
                         message="Empty response content from model",
@@ -428,6 +459,9 @@ class ChatOpenRouter(BaseModel):
                         extra=extra
                     )
                 except (dirtyjson.Error, ValueError, TypeError) as e:
+                    self._log_structured_output_failure(
+                        "json-parse-failed", content, finish_reason, usage, reasoning, e
+                    )
                     return LLMResponse(
                         success=False,
                         message=f"Failed to parse JSON from response: {e}",
@@ -436,6 +470,9 @@ class ChatOpenRouter(BaseModel):
                         )
                     )
                 except Exception as e:
+                    self._log_structured_output_failure(
+                        "schema-validation-failed", content, finish_reason, usage, reasoning, e
+                    )
                     return LLMResponse(
                         success=False,
                         message=f"Failed to validate response against schema: {e}",
@@ -507,19 +544,39 @@ class ChatOpenRouter(BaseModel):
                 **kwargs,
             )
             
-            # Step 2: Call model API
-            response = await self._call_model(
-                messages=params["messages"],
-                plugins=params["plugins"],
-                **params["params"],
+            # 是否为结构化输出请求(pydantic 模型): 此类请求偶发解析失败(如 reasoning
+            # 失控返回空正文)时值得重试一次, 模仿官方 SDK 的 retry 纪律。
+            is_structured = (
+                response_format is not None
+                and isinstance(response_format, type)
+                and issubclass(response_format, BaseModel)
             )
-            
-            # Step 3: Format response (now unified since both clients return ChatCompletion)
-            return await self._format_response(
-                response=response,
-                tools=tools,
-                response_format=response_format,
-            )
+            max_attempts = 2 if is_structured else 1
+
+            formatted = None
+            for attempt in range(1, max_attempts + 1):
+                # Step 2: Call model API
+                response = await self._call_model(
+                    messages=params["messages"],
+                    plugins=params["plugins"],
+                    **params["params"],
+                )
+
+                # Step 3: Format response (now unified since both clients return ChatCompletion)
+                formatted = await self._format_response(
+                    response=response,
+                    tools=tools,
+                    response_format=response_format,
+                )
+
+                # 成功或已用尽重试次数则返回; 否则记录并重试一次
+                if formatted.success or attempt >= max_attempts:
+                    break
+                logger.warning(
+                    f"| \u267b\ufe0f Structured output failed (attempt {attempt}/{max_attempts}), retrying: {formatted.message}"
+                )
+
+            return formatted
 
         except RateLimitError as e:
             logger.error(f"Rate limit error: {e}")
