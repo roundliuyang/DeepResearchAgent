@@ -68,7 +68,7 @@
         <mxCell id="h" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="08  AgentContextManager.__call__()&#10;get_info(name) → 已有 agent_instance" vertex="1">
           <mxGeometry height="70" width="310" x="845" y="730" as="geometry" />
         </mxCell>
-        <mxCell id="i" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FFF2DC;strokeColor=#C99A4E;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="09  PlanningAgent.__call__()&#10;回填结果；组装提示词；调用模型" vertex="1">
+        <mxCell id="i" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FFF2DC;strokeColor=#C99A4E;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="09  PlanningAgent.__call__()&#10;按 dispatch_id 回填对应分派结果&#10;摘要 + 完整最新结果进入模型消息" vertex="1">
           <mxGeometry height="70" width="310" x="1235" y="730" as="geometry" />
         </mxCell>
         <mxCell id="j" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FFF2DC;strokeColor=#C99A4E;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="10  model_manager → PlanDecision&#10;拆解子任务、选择 Agent、判断依赖" vertex="1">
@@ -77,7 +77,7 @@
         <mxCell id="k" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="11  _call_planner_raw 提取 decision&#10;_run_planner_loop 检查完成与分派" vertex="1">
           <mxGeometry height="70" width="310" x="455" y="930" as="geometry" />
         </mxCell>
-        <mxCell id="l" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="12  PlanDecision.dispatches&#10;校验名称；每项构造 PLAN 消息" vertex="1">
+        <mxCell id="l" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="12  PlanDecision.dispatches&#10;过滤前生成 dispatch_id，再校验名称&#10;每项构造 PLAN 消息" vertex="1">
           <mxGeometry height="70" width="310" x="455" y="1030" as="geometry" />
         </mxCell>
         <mxCell id="m" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="13  asyncio.gather(...)&#10;每个子任务调用 _call_agent(...)" vertex="1">
@@ -98,7 +98,7 @@
         <mxCell id="s" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="18  _call_agent 封装 BusMessage&#10;gather 等待本轮全部执行结束" vertex="1">
           <mxGeometry height="70" width="310" x="455" y="1430" as="geometry" />
         </mxCell>
-        <mxCell id="t" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="19  收集 success / result / error&#10;更新 round_results 和 execution_history" vertex="1">
+        <mxCell id="t" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="19  按 dispatch_id 保存各项结果&#10;保留 Agent 名称、任务、成功 / 错误&#10;更新 round_results 和历史摘要" vertex="1">
           <mxGeometry height="70" width="310" x="455" y="1530" as="geometry" />
         </mxCell>
         <mxCell id="u" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FFF2DC;strokeColor=#C99A4E;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" value="20  下一轮再次调用 planning&#10;评价执行结果；继续、重试或结束" vertex="1">
@@ -351,13 +351,13 @@
         <mxCell id="todos-title" value="说明｜plan.md 的 todos&#10;对应主流程 10a → 10b → 10c" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=16;fontFamily=Helvetica;spacing=15;fillColor=#FFFFFF;strokeColor=#9685C8;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=23;fontStyle=1;;fontSize=21;">
           <mxGeometry x="2500" y="150" width="610" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="todos-source" value="10a  更新 PlanFile&#10;有分派：add_round(PlanRound)&#10;完成：finalize；同时记录结果分析" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=16;fontFamily=Helvetica;spacing=15;fillColor=#FFFFFF;strokeColor=#9685C8;align=left;verticalAlign=middle;;fillColor=#EEEAFE;strokeColor=#9381C6;fontSize=13;spacing=8;align=center;">
+        <mxCell id="todos-source" value="10a  更新 PlanFile&#10;分派按 task_id / 轮次 / 原始序号标识&#10;记录 PlanRound 或完成状态" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=16;fontFamily=Helvetica;spacing=15;fillColor=#FFFFFF;strokeColor=#9685C8;align=left;verticalAlign=middle;;fillColor=#EEEAFE;strokeColor=#9381C6;fontSize=13;spacing=8;align=center;">
           <mxGeometry x="1235" y="930" width="310" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="todos-render" value="10b  save() → _render()&#10;→ _build_todos()&#10;遍历 rounds / agents，累计分派编号" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=16;fontFamily=Helvetica;spacing=15;fillColor=#FFFFFF;strokeColor=#9685C8;align=left;verticalAlign=middle;;fillColor=#EEEAFE;strokeColor=#9381C6;fontSize=13;spacing=8;align=center;">
+        <mxCell id="todos-render" value="10b  save() → _render()&#10;→ _build_todos()&#10;按 dispatch_id 取描述和结果，累计 step" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=16;fontFamily=Helvetica;spacing=15;fillColor=#FFFFFF;strokeColor=#9685C8;align=left;verticalAlign=middle;;fillColor=#EEEAFE;strokeColor=#9381C6;fontSize=13;spacing=8;align=center;">
           <mxGeometry x="1235" y="1040" width="310" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="todos-output" value="10c  写入 plan.md 的 todos&#10;step-{累计序号}-{Agent名称}&#10;随后返回 AgentResponse&#10;extra.data 包含 decision / plan_path" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=16;fontFamily=Helvetica;spacing=15;fillColor=#FFFFFF;strokeColor=#9685C8;align=left;verticalAlign=middle;;fillColor=#EEEAFE;strokeColor=#9381C6;fontSize=13;spacing=8;align=center;">
+        <mxCell id="todos-output" value="10c  写入 plan.md 的 todos&#10;保留 step 编号，附 dispatch_id&#10;返回 AgentResponse&#10;extra.data：decision / plan_path" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=16;fontFamily=Helvetica;spacing=15;fillColor=#FFFFFF;strokeColor=#9685C8;align=left;verticalAlign=middle;;fillColor=#EEEAFE;strokeColor=#9381C6;fontSize=13;spacing=8;align=center;">
           <mxGeometry x="1235" y="1230" width="310" height="100" as="geometry" />
         </mxCell>
         <mxCell id="todos-edge1" value="" edge="1" parent="1" source="todos-source" target="todos-render" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=0;endArrow=block;endFill=1;strokeColor=#8B78BA;strokeWidth=2;fontColor=#65508F;fontSize=13;labelBackgroundColor=#FFFFFF;">
@@ -384,7 +384,7 @@
         <mxCell id="todos-edge4" value="反馈后追加" edge="1" parent="1" source="todos-step2" target="todos-step3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=0;endArrow=block;endFill=1;strokeColor=#8B78BA;strokeWidth=2;fontColor=#65508F;fontSize=13;labelBackgroundColor=#FFFFFF;">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="todos-notes" value="编号与状态的准确含义&#10;&#10;• step 是累计分派项编号，不是工具行动次数，也不是固定的规划轮号；同轮派发多个子任务会生成多个 todo。&#10;&#10;• 本例三轮各有一次分派，所以 step 与 Round 恰好一一对应。完成确认轮没有 dispatches，因此不会新增 step-4。&#10;&#10;• 下一轮 PlanningAgent 回填上一轮 results 后再保存：无结果为 pending；当前实现 success=True 或 False 都标记 completed，不能仅凭勾选判定成功。&#10;&#10;• todos 是 PlanRound 的展示记录；实际执行仍由 AgentBus 读取 PlanDecision.dispatches 驱动。&#10;&#10;字段格式&#10;id = step-{累计分派序号}-{Agent名称}&#10;content = Agent 名称 + 子任务描述前 200 字符&#10;status = pending / completed" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=16;fontFamily=Helvetica;spacing=15;fillColor=#FFFFFF;strokeColor=#9685C8;align=left;verticalAlign=middle;fillColor=#FFF5DE;strokeColor=#D1A347;fontSize=16;">
+        <mxCell id="todos-notes" value="编号与状态的准确含义&#10;&#10;• 每分派一个子任务，就生成一个 todo；step-1、step-2……跨轮连续编号。一次分派内部调用多次工具，不会增加这里的 step。&#10;&#10;• 同一轮可多次调用 tool_calling。各项都有独立 dispatch_id，描述与结果分别保存，不再按 Agent 名称覆盖。&#10;&#10;• 本例每轮分派一次，因此 step 与 Round 恰好对应。完成确认轮没有新分派，不新增 step-4。&#10;&#10;• Planner 按 dispatch_id 回填对应分派结果再保存：无结果为 pending；当前 success=True 或 False 都标记 completed，勾选不等于成功。&#10;&#10;• todos 是展示记录；实际执行由 Bus 读取 PlanDecision.dispatches 驱动。&#10;&#10;字段格式&#10;id = step-{累计分派序号}-{Agent名称}&#10;dispatch_id = {task_id}-r{轮次}-d{原始分派序号}&#10;content = Agent 名称 + 子任务描述前 200 字符&#10;status = pending / completed" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=16;fontFamily=Helvetica;spacing=15;fillColor=#FFFFFF;strokeColor=#9685C8;align=left;verticalAlign=middle;fillColor=#FFF5DE;strokeColor=#D1A347;fontSize=16;">
           <mxGeometry x="2500" y="1230" width="610" height="590" as="geometry" />
         </mxCell>
         <mxCell id="todos-integrated-entry" source="j" target="todos-source" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;endFill=1;strokeColor=#8B78BA;strokeWidth=2;">
@@ -407,19 +407,19 @@
         <mxCell id="bg0" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FAFBFD;strokeColor=#DFE5EC;fontColor=#243444;fontSize=14;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="35" y="130" width="370" height="1460" as="geometry" />
         </mxCell>
-        <mxCell id="head0" value="调用方与 submit&#10;run_bus.py · bus.py:222" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="head0" value="调用方与 submit&#10;run_bus.py · bus.py:223" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="45" y="140" width="350" height="70" as="geometry" />
         </mxCell>
         <mxCell id="bg1" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FAFBFD;strokeColor=#DFE5EC;fontColor=#243444;fontSize=14;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="425" y="130" width="370" height="1460" as="geometry" />
         </mxCell>
-        <mxCell id="head1" value="_ensure_session&#10;bus.py:361" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="head1" value="_ensure_session&#10;bus.py:362" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="435" y="140" width="350" height="70" as="geometry" />
         </mxCell>
         <mxCell id="bg2" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FAFBFD;strokeColor=#DFE5EC;fontColor=#243444;fontSize=14;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="815" y="130" width="370" height="1460" as="geometry" />
         </mxCell>
-        <mxCell id="head2" value="_session_worker 与 Future&#10;bus.py:392 · 935" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="head2" value="_session_worker 与 Future&#10;bus.py:393 · 948" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="825" y="140" width="350" height="70" as="geometry" />
         </mxCell>
         <mxCell id="a" value="run_bus.py：await bus.submit(...)" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -721,7 +721,7 @@
         <mxCell id="bg0" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FAFBFD;strokeColor=#DFE5EC;fontColor=#243444;fontSize=14;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="35" y="130" width="370" height="1960" as="geometry" />
         </mxCell>
-        <mxCell id="head0" value="AgentBus：规划循环&#10;bus.py:441 · 799 · 849" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="head0" value="AgentBus：规划循环&#10;bus.py:442 · 806 · 856" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="45" y="140" width="350" height="70" as="geometry" />
         </mxCell>
         <mxCell id="bg1" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FAFBFD;strokeColor=#DFE5EC;fontColor=#243444;fontSize=14;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -733,7 +733,7 @@
         <mxCell id="bg2" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FAFBFD;strokeColor=#DFE5EC;fontColor=#243444;fontSize=14;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="815" y="130" width="370" height="1960" as="geometry" />
         </mxCell>
-        <mxCell id="head2" value="PlanningAgent：单轮规划&#10;planning_agent.py:565" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="head2" value="PlanningAgent：单轮规划&#10;planning_agent.py:571" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="825" y="140" width="350" height="70" as="geometry" />
         </mxCell>
         <mxCell id="a" value="_run_planner_loop(message)&#10;先检查 TTL；过期则交付 ERROR 并返回" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -751,16 +751,16 @@
         <mxCell id="e" value="get_info(name) 获取配置与已有实例&#10;await agent_instance(**input, ctx, **kwargs)" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="455" y="530" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="f" value="PlanningAgent.__call__()&#10;获取 / 复用 PlanFile&#10;回填上一轮 round_results" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="f" value="PlanningAgent.__call__()&#10;获取 / 复用 PlanFile&#10;按 dispatch_id 匹配对应轮次结果" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="845" y="530" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="g" value="prompt_manager.get_messages()&#10;系统：Agent 能力&#10;任务：原始目标、轮数、累计执行历史" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="g" value="prompt_manager.get_messages()&#10;任务 / 能力 / 轮数 / 历史摘要&#10;latest_round_results：完整最新结果 JSON" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="845" y="630" width="310" height="70" as="geometry" />
         </mxCell>
         <mxCell id="h" value="model_manager(response_format=PlanDecision)&#10;模型拆解任务、选择 Agent&#10;生成本轮 dispatches 或最终答案" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="845" y="730" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="i" value="更新分析与 PlanRound / 完成状态&#10;await plan_file.save()&#10;写入 &lt;session_id&gt;.plan.md" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="i" value="按分派 ID 记录 PlanRound / 完成状态&#10;await plan_file.save()&#10;生成 todos 并写入 plan.md" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="845" y="830" width="310" height="70" as="geometry" />
         </mxCell>
         <mxCell id="j" value="返回 AgentResponse&#10;extra.data = {decision, plan_path}" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#EEEAFE;strokeColor=#9381C6;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -772,10 +772,10 @@
         <mxCell id="l" value="决策分流&#10;is_done → 最终 RESPONSE&#10;None / 未完成却无分派 → ERROR" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="1130" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="m" value="校验 dispatches.agent_name&#10;精确匹配或名称解析；跳过无效项" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="m" value="按任务 ID / 轮次 / 原始序号生成 ID&#10;再校验 dispatches.agent_name&#10;解析名称；跳过无效项，不重新编号" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="1230" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="n" value="每个有效 dispatch 构造 PLAN 消息&#10;content = task；files = files&#10;单项单播，不再进入 session 队列" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="n" value="每项构造 PLAN 消息&#10;payload：dispatch_id / content / files&#10;单项单播，不再进入 session 队列" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="1330" width="310" height="70" as="geometry" />
         </mxCell>
         <mxCell id="o" value="asyncio.gather(return_exceptions=True)&#10;并发 _call_agent(name, message, ctx)" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -790,7 +790,7 @@
         <mxCell id="s" value="_call_agent 封装执行结果&#10;正常：RESPONSE，含 success/result/error&#10;Exception：ERROR" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="1530" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="t" value="gather 等待全部结束&#10;按 dispatch 与 response 配对&#10;构建 round_results，追加历史摘要" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="t" value="gather 等待全部结束，逐项配对&#10;round_results 以 dispatch_id 为键&#10;保留各项结果并追加历史摘要" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="1630" width="310" height="70" as="geometry" />
         </mxCell>
         <mxCell id="u" value="未完成且仍有轮次 → 下一轮&#10;失败结果也交给 Planner 决定下一步" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -1080,7 +1080,7 @@
         <mxCell id="bg0" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FAFBFD;strokeColor=#DFE5EC;fontColor=#243444;fontSize=14;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="35" y="130" width="370" height="1660" as="geometry" />
         </mxCell>
-        <mxCell id="head0" value="Bus 与 ACP&#10;bus.py:849 · agent/server.py" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="head0" value="Bus 与 ACP&#10;bus.py:856 · agent/server.py" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=15;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="45" y="140" width="350" height="70" as="geometry" />
         </mxCell>
         <mxCell id="bg1" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#FAFBFD;strokeColor=#DFE5EC;fontColor=#243444;fontSize=14;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -1143,10 +1143,10 @@
         <mxCell id="q" value="返回 AgentResponse&#10;success=response.done&#10;message=response.result；extra.data=response" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="455" y="1530" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="r" value="ACP 原路返回 → _call_agent&#10;Agent success=False 仍封装为 RESPONSE&#10;普通调用异常封装为 ERROR" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="r" value="ACP 原路返回 → _call_agent&#10;封装 RESPONSE 或 ERROR&#10;返回消息保留对应 dispatch_id" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="1530" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="s" value="Bus gather 收集全部结果&#10;更新历史，下一轮反馈给 Planner" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="s" value="Bus gather 收集全部结果&#10;按 dispatch_id 保存，更新历史&#10;下一轮完整最新结果传入 Planner 模型" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="1630" width="310" height="70" as="geometry" />
         </mxCell>
         <mxCell id="t" value="两种结束标记&#10;执行 Agent：done → 子任务结束&#10;Planner：is_done → 原始任务结束" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -1356,22 +1356,22 @@
         <mxCell id="c3" value="PlanDecision：PlanningAgent → Bus&#10;analysis、plan_update、dispatches&#10;is_done、final_result（另含决策依据字段）" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="430" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="c4" value="dispatches 每项：agent_name / task / files&#10;Bus 将每项转换为 PLAN 消息&#10;_call_agent 将 content 映射回 Agent.task" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="c4" value="每项 dispatch：agent_name / task / files&#10;代码按任务 ID / 轮次 / 原始序号生成 ID&#10;PLAN 消息携带 dispatch_id / content / files" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="530" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="c5" value="子 Agent → AgentResponse&#10;success / message / extra&#10;Bus 封装为 success / result / error" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="c5" value="子 Agent → AgentResponse&#10;success / message / extra&#10;Bus 封装结果，并保留 dispatch_id" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="630" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="c6" value="round_results：以 Agent 名称为键&#10;execution_history：累计每轮摘要&#10;两者随下一轮调用回到 Planner" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="c6" value="round_results：以 dispatch_id 为键&#10;保留 agent_name / task / success / result / error&#10;完整 JSON 通过 latest_round_results 传给模型" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="730" width="310" height="70" as="geometry" />
         </mxCell>
         <mxCell id="c7" value="最终 BusMessage → _resolve_future&#10;correlation_id 对应 _pending_responses&#10;set_result 唤醒 submit；调用方读取 payload" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="830" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="c8" value="AgentBus 源码索引&#10;submit:222；ensure:361；worker:392&#10;planner_loop:441；planner_raw:799&#10;call_agent:849；resolve_future:935" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="c8" value="AgentBus 源码索引&#10;submit:223；ensure:362；worker:393&#10;planner_loop:442；planner_raw:806&#10;call_agent:856；resolve_future:948" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="1030" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="c9" value="Agent 源码索引&#10;ACPServer.__call__:283；ContextManager:1250&#10;PlanningAgent.__call__:565&#10;ToolCallingAgent.__call__:349；步骤循环:435" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="c9" value="Agent 源码索引&#10;ACPServer.__call__:283；ContextManager:1250&#10;PlanningAgent.__call__:571&#10;ToolCallingAgent.__call__:349；步骤循环:435" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E7F3EF;strokeColor=#42967B;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="65" y="1230" width="310" height="70" as="geometry" />
         </mxCell>
         <mxCell id="b1" value="无有效 decision / 未完成且无 dispatches&#10;Bus 立即交付 ERROR&#10;所有名称无效则进入下一轮，而非立即失败" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -1383,7 +1383,7 @@
         <mxCell id="b3" value="达到 max_rounds：先回传 ERROR&#10;再额外调用 Planner 做收尾&#10;收尾决策不执行，也不改写已交付结果" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="455" y="430" width="310" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="b4" value="同轮多次调用同名 Agent&#10;round_results[name] 会被后项覆盖&#10;累计历史仍按分派项逐条追加摘要" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="b4" value="同轮多次调用同名 Agent：已修复&#10;各分派使用唯一 dispatch_id，不覆盖结果&#10;PlanRound / todos 按该 ID 匹配描述与结果" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="455" y="530" width="310" height="70" as="geometry" />
         </mxCell>
         <mxCell id="b5" value="ToolCallingAgent 达到 max_steps&#10;即使最后一步刚 done，当前条件仍会&#10;将 response 覆盖成超限失败" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fillColor=#E9F0FC;strokeColor=#6D8DC4;fontColor=#243444;fontSize=13;fontFamily=Helvetica;spacing=9;align=center;verticalAlign=middle;" vertex="1" parent="1">
@@ -1487,7 +1487,7 @@
         <mxCell id="r1json" value="PlanningAgent 返回关键字段&#10;&#10;{&#10;  &quot;analysis&quot;: &quot;&quot;,&#10;  &quot;plan_update&quot;: &quot;分派 tool_calling 智能体执行 hello world 技能。&quot;,&#10;  &quot;is_done&quot;: false,&#10;  &quot;dispatches&quot;: [&#10;    {&#10;      &quot;agent_name&quot;: &quot;tool_calling&quot;,&#10;      &quot;files&quot;: [],&#10;      &quot;task&quot;: &quot;执行 hello world 技能，返回问候语。&quot;&#10;    }&#10;  ],&#10;  &quot;final_result&quot;: &quot;&quot;&#10;}" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#9685C8;fontFamily=monospace;fontSize=14;verticalAlign=top;">
           <mxGeometry x="55" y="410" width="430" height="480" as="geometry" />
         </mxCell>
-        <mxCell id="r1branch" value="AgentBus 按顺序判断&#10;&#10;① is_done=False → 跳过完成分支&#10;② dispatches 非空 → 校验目标 Agent&#10;③ 进入子任务执行分支" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFF0CC;strokeColor=#C58A1E;">
+        <mxCell id="r1branch" value="AgentBus 按顺序判断&#10;&#10;① is_done=False → 跳过完成分支&#10;② 为分派项生成 ID，再校验 Agent&#10;③ 进入子任务执行分支" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFF0CC;strokeColor=#C58A1E;">
           <mxGeometry x="55" y="955" width="430" height="175" as="geometry" />
         </mxCell>
         <mxCell id="exec" value="AgentBus：_call_agent(...)&#10;→ acp(name=&quot;tool_calling&quot;)&#10;→ ToolCallingAgent.__call__()" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#5D9E85;">
@@ -1496,10 +1496,10 @@
         <mxCell id="actual" value="tool_calling 执行 hello world 技能&#10;取得问候语 → 调用 done&#10;记忆 / tracer 收尾 → 返回 AgentResponse" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#5D9E85;">
           <mxGeometry x="585" y="745" width="430" height="135" as="geometry" />
         </mxCell>
-        <mxCell id="collect" value="AgentBus：本轮全部执行结束&#10;&#10;收集 success / result / error&#10;更新 round_results + execution_history&#10;当前仍不能据此直接结束顶层任务" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#5D9E85;">
+        <mxCell id="collect" value="AgentBus：本轮全部执行结束&#10;&#10;按 dispatch_id 保存 success / result / error&#10;更新 round_results + execution_history&#10;当前仍不能据此直接结束顶层任务" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#5D9E85;">
           <mxGeometry x="585" y="505" width="430" height="175" as="geometry" />
         </mxCell>
-        <mxCell id="next" value="_run_planner_loop：进入第 2 轮&#10;再次 _call_planner_raw(...)&#10;将执行历史和上一轮结果交给 Planner" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFF0CC;strokeColor=#C58A1E;fontStyle=1;">
+        <mxCell id="next" value="_run_planner_loop：进入第 2 轮&#10;再次 _call_planner_raw(...)&#10;历史摘要 + 完整最新结果传给模型" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFF0CC;strokeColor=#C58A1E;fontStyle=1;">
           <mxGeometry x="585" y="285" width="430" height="135" as="geometry" />
         </mxCell>
         <mxCell id="r2input" value="Planner 读取上一轮结果&#10;评价结果，确认原始任务已完成" vertex="1" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=0;fontColor=#263548;fontSize=15;fontFamily=Helvetica;spacing=14;fillColor=#FFF5DE;strokeColor=#DB9E2C;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#9685C8;">
