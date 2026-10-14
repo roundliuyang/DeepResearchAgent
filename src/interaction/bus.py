@@ -61,6 +61,7 @@ from src.interaction.types import BusEvent, BusMessage, BusMessageType, Delivery
 from src.logger import logger
 from src.session import SessionContext
 from src.task import Task
+from src.task.dispatch import make_dispatch_id
 
 _DEFAULT_MAX_ROUNDS = 10
 
@@ -627,7 +628,9 @@ class AgentBus:
             #    使用解析后的名称执行，无法识别的分派项则跳过。
             known = set(self._known_agents.keys())
             valid_dispatches = []
-            for d in dispatches:
+            for dispatch_index, d in enumerate(dispatches, 1):
+                # Keep the original decision index so PlanRound and Bus agree.
+                d["dispatch_id"] = make_dispatch_id(task_id, round_num, dispatch_index)
                 raw_name = d["agent_name"]
                 if raw_name in known:
                     valid_dispatches.append(d)
@@ -674,6 +677,7 @@ class AgentBus:
                     recipients=[d["agent_name"]],
                     delivery_mode=DeliveryMode.UNICAST,
                     payload={
+                        "dispatch_id": d["dispatch_id"],
                         "content": d["task"],
                         "files": d.get("files", []),
                     },
@@ -732,17 +736,19 @@ class AgentBus:
             ]
 
             # gather 保留输入顺序，因此可以将分派项与返回结果一一配对。
-            # 结果以 Agent 名称为键；同名 Agent 多次执行时，后一个会覆盖前一个。
+            # 按分派 ID 保存，每次同名 Agent 调用都有独立结果。
             for d, raw in zip(dispatches, raw_responses):
                 name = d["agent_name"]
                 subtask = d["task"]
-                history_parts.append(f"  {name} subtask: {subtask[:200]}")
+                dispatch_id = d["dispatch_id"]
+                identity = {"dispatch_id": dispatch_id, "agent_name": name, "task": subtask}
+                history_parts.append(f"  {name} [{dispatch_id}] subtask: {subtask[:200]}")
 
                 # 调用抛出异常时记录失败，供下一轮 planner 判断如何继续。
                 if isinstance(raw, BaseException):
                     logger.error(f"| Bus: agent '{name}' error: {raw}")
-                    round_results[name] = {"success": False, "error": str(raw)}
-                    history_parts.append(f"  FAIL {name}: {str(raw)[:300]}")
+                    round_results[dispatch_id] = {**identity, "success": False, "result": "", "error": str(raw)}
+                    history_parts.append(f"  FAIL {name} [{dispatch_id}]: {str(raw)[:300]}")
                 else:
                     # 正常返回 BusMessage 也可能表示失败，需读取 payload.success。
                     # 保留结果或错误文本；历史摘要只截取前 300 个字符。
@@ -750,13 +756,14 @@ class AgentBus:
                     result_text = str(
                         raw.payload.get("result") or raw.payload.get("error") or ""
                     )
-                    round_results[name] = {
+                    round_results[dispatch_id] = {
+                        **identity,
                         "success": ok,
                         "result": result_text,
                         "error": raw.payload.get("error"),
                     }
                     tag = "OK" if ok else "FAIL"
-                    history_parts.append(f"  {tag} {name}: {result_text[:300]}")
+                    history_parts.append(f"  {tag} {name} [{dispatch_id}]: {result_text[:300]}")
                     logger.info(f"| Bus: agent '{name}' → {tag}")
 
             # 将本轮摘要追加到累计历史；下一轮调用 planner 时传入更新后的数据。
@@ -905,7 +912,7 @@ class AgentBus:
 
             # 封装为 RESPONSE：保留会话、任务和关联 ID，以目标 Agent 为发送者。
             # parent_id 指向输入的子任务消息，便于追溯该结果对应哪次分派。
-            return BusMessage.response_message(
+            response = BusMessage.response_message(
                 session_id=message.session_id,
                 task_id=message.task_id,
                 correlation_id=message.correlation_id,
@@ -915,18 +922,24 @@ class AgentBus:
                 error=error_str,
                 parent_id=message.id,
             )
+            if "dispatch_id" in message.payload:
+                response.payload["dispatch_id"] = message.payload["dispatch_id"]
+            return response
 
         except Exception as exc:
             # 调用或结果封装过程中抛出普通异常时，记录堆栈并返回 ERROR 消息。
             # 上层可将该错误与其他子任务结果一起收集，再交给 Planner 判断下一步。
             logger.error(f"| Bus: agent '{agent_name}' raised: {exc}", exc_info=True)
-            return BusMessage.error_message(
+            response = BusMessage.error_message(
                 session_id=message.session_id,
                 task_id=message.task_id,
                 correlation_id=message.correlation_id,
                 error=str(exc),
                 parent_id=message.id,
             )
+            if "dispatch_id" in message.payload:
+                response.payload["dispatch_id"] = message.payload["dispatch_id"]
+            return response
 
     # ------------------------------------------------------------------
     # 内部辅助方法

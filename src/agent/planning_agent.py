@@ -45,6 +45,7 @@ from src.logger import logger
 from src.model import model_manager
 from src.prompt import prompt_manager
 from src.registry import AGENT
+from src.task.dispatch import make_dispatch_id
 from src.session import SessionContext
 
 
@@ -154,8 +155,9 @@ class PlanRound:
     goal: str
     agents: List[str]
     delivery_mode: str              # "UNICAST" | "BROADCAST"
-    subtasks: Dict[str, str]        # agent_name → task text
-    results: Dict[str, Any]         # agent_name → {success, result, error}
+    subtasks: Dict[str, str]        # dispatch_id → task text
+    results: Dict[str, Any]         # dispatch_id → {agent_name, task, success, result, error}
+    dispatch_ids: List[str] = field(default_factory=list)
     analysis: str = ""
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -260,13 +262,14 @@ class PlanFile:
             lines.append(f"=== Round {r.number} — {r.timestamp} ===")
             lines.append(f"Goal: {r.goal}")
             lines.append(f"Dispatched ({r.delivery_mode}): {', '.join(r.agents)}")
-            for agent in r.agents:
-                lines.append(f"  {agent} subtask: {r.subtasks.get(agent, '')[:200]}")
+            for dispatch_id, agent in zip(r.dispatch_ids or r.agents, r.agents):
+                lines.append(f"  {agent} [{dispatch_id}] subtask: {r.subtasks.get(dispatch_id, '')[:200]}")
             lines.append("Results:")
-            for agent, res in r.results.items():
+            for dispatch_id, res in r.results.items():
+                agent = res.get("agent_name", dispatch_id)
                 ok = res.get("success", False)
                 text = str(res.get("result") or res.get("error") or "")[:300]
-                lines.append(f"  {'OK' if ok else 'FAIL'} {agent}: {text}")
+                lines.append(f"  {'OK' if ok else 'FAIL'} {agent} [{dispatch_id}]: {text}")
             if r.analysis:
                 lines.append(f"Analysis: {r.analysis[:300]}")
             lines.append("")
@@ -283,10 +286,10 @@ class PlanFile:
         todos: List[Dict[str, str]] = []
         task_index = 0
         for r in self.rounds:
-            for a in r.agents:
+            for dispatch_id, a in zip(r.dispatch_ids or r.agents, r.agents):
                 task_index += 1
-                st = r.subtasks.get(a, "")[:200]
-                res = r.results.get(a, {})
+                st = r.subtasks.get(dispatch_id, "")[:200]
+                res = r.results.get(dispatch_id, {})
                 ok = res.get("success")
                 if ok is True:
                     status = "completed"
@@ -297,6 +300,7 @@ class PlanFile:
                 todo_id = f"step-{task_index}-{self._node_id(a)}"
                 todos.append({
                     "id": todo_id,
+                    "dispatch_id": dispatch_id,
                     "content": f"{a}: {st}",
                     "status": status,
                 })
@@ -352,9 +356,9 @@ class PlanFile:
         if r.agents:
             lines.append(f"**Dispatched ({r.delivery_mode}):** {', '.join(f'`{a}`' for a in r.agents)}")
             lines.append("")
-            for a in r.agents:
-                st = r.subtasks.get(a, "")[:300]
-                res = r.results.get(a, {})
+            for dispatch_id, a in zip(r.dispatch_ids or r.agents, r.agents):
+                st = r.subtasks.get(dispatch_id, "")[:300]
+                res = r.results.get(dispatch_id, {})
                 ok = res.get("success")
                 if ok is True:
                     lines.append(f"- [x] **`{a}`**: {st}")
@@ -409,6 +413,7 @@ class PlanFile:
             lines.append("todos:")
             for t in todos:
                 lines.append(f'  - id: {t["id"]}')
+                lines.append(f'    dispatch_id: "{esc(t["dispatch_id"])}"')
                 lines.append(f'    content: "{esc(t["content"])}"')
                 lines.append(f'    status: {t["status"]}')
         else:
@@ -600,7 +605,7 @@ class PlanningAgent(Agent):
                 agent_contract: 可用子智能体的名称与能力描述，默认空字符串。
                 execution_history: 已完成轮次的执行摘要，默认空字符串。
                 round_results: 上一轮结果，格式为
-                    {Agent 名称: {success, result, error}}，第一轮为空字典。
+                    {dispatch_id: {agent_name, task, success, result, error}}，第一轮为空字典。
 
         Returns:
             AgentResponse，其 extra.data["decision"] 为 PlanDecision 字典，
@@ -637,8 +642,13 @@ class PlanningAgent(Agent):
         # 【填充执行结果】总线已执行上一轮子任务，将 success/result/error 传回。
         # 例如第 2 轮把 tool_calling 返回的问候语写入 Round 1.results，
         # 保存后显示在该轮的 Result 中；首轮无历史结果，跳过此步骤。
-        if round_results and plan_file.rounds:
-            plan_file.rounds[-1].results = round_results
+        # Match by dispatch identity, not the last round or the agent name.
+        # The Bus may skip an invalid-only round and pass earlier results again.
+        for recorded_round in plan_file.rounds:
+            keys = recorded_round.dispatch_ids or recorded_round.agents
+            recorded_round.results.update({
+                key: round_results[key] for key in keys if key in round_results
+            })
 
         # ------------------------------------------------------------------
         # 历史摘要可能截断结果；最新一轮单独传入模型，不再做字符截断。
@@ -707,7 +717,11 @@ class PlanningAgent(Agent):
             # 分派决策：记录本轮目标、Agent 和子任务，实际调用由 AgentBus 执行。
             delivery = "BROADCAST" if len(decision.dispatches) > 1 else "UNICAST"
             agent_names = [d.agent_name for d in decision.dispatches]
-            subtasks = {d.agent_name: d.task for d in decision.dispatches}
+            dispatch_ids = [
+                make_dispatch_id(task_id, round_number, index)
+                for index, _ in enumerate(decision.dispatches, 1)
+            ]
+            subtasks = {key: d.task for key, d in zip(dispatch_ids, decision.dispatches)}
 
             # 【填充本轮计划】将模型的分派决策转换为一条执行记录，
             # 保存轮号、计划目标、Agent 名称、分派方式和各 Agent 的子任务描述。
@@ -718,6 +732,7 @@ class PlanningAgent(Agent):
                 agents=agent_names,
                 delivery_mode=delivery,
                 subtasks=subtasks,
+                dispatch_ids=dispatch_ids,
                 results={},  # 下一轮调用时，用总线传回的 round_results 回填
             )
             # 将本轮记录追加到 PlanFile.rounds，保留先前轮次的内容。
