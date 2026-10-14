@@ -40,7 +40,8 @@ INPUT = """
 Each round you receive:
 - <task>: The original task description (constant across rounds).
 - <available_agents>: The agents registered on the bus with their descriptions.
-- <execution_history>: Plain-text log of every previous round — dispatches, sub-tasks, and results.
+- <execution_history>: Abbreviated log of previous rounds; task descriptions and results may be truncated.
+- <latest_round_results>: JSON containing the latest round's agent results without the history's character truncation. Empty on the first round.
 - <round_info>: Current round number and maximum allowed rounds.
 </input>
 """
@@ -146,6 +147,10 @@ Round {{ round_number }} of {{ max_rounds }}.
 <execution_history>
 {{ execution_history }}
 </execution_history>
+
+<latest_round_results>
+{{ latest_round_results }}
+</latest_round_results>
 """
 
 # ---------------------------------------------------------------------------
@@ -256,6 +261,14 @@ AGENT_MESSAGE_PROMPT = {
             "require_grad": False,
             "template": None,
             "variables": None,
+        },
+        "latest_round_results": {
+            "name": "latest_round_results",
+            "type": "agent_message_prompt",
+            "description": "Latest round agent results without history-summary truncation.",
+            "require_grad": False,
+            "template": None,
+            "variables": "{}",
         },
     },
 }

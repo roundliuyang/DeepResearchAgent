@@ -32,6 +32,7 @@ string that includes the previous execution history.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -640,7 +641,8 @@ class PlanningAgent(Agent):
             plan_file.rounds[-1].results = round_results
 
         # ------------------------------------------------------------------
-        # 通过提示词模板组装模型消息：系统消息含 Agent 能力，任务消息含执行历史。
+        # 历史摘要可能截断结果；最新一轮单独传入模型，不再做字符截断。
+        # round_results 不能只回填 PlanFile，否则模型看不到摘要之外的执行证据。
         # ------------------------------------------------------------------
         history_text = execution_history if execution_history else "(no rounds completed yet)"
 
@@ -652,6 +654,7 @@ class PlanningAgent(Agent):
                 "round_number": str(round_number),
                 "max_rounds": str(max_rounds),
                 "execution_history": history_text,
+                "latest_round_results": json.dumps(round_results, ensure_ascii=False, indent=2),
             },
         )
 
