@@ -238,71 +238,85 @@ class ToolCallingAgent(Agent):
                 action_type = action.type            # 行动类型: "skill" 或 "tool"
                 action_name = action.name            # 行动名称(技能名或工具名)
                 action_args_str = action.args        # 行动参数字符串(JSON格式)
-                action_args = parse_tool_args(action_args_str) if action_args_str else {}   # 解析为字典
+                try:
+                    action_args = parse_tool_args(action_args_str) if action_args_str else {}   # 解析为字典
 
-                logger.info(f"| 📝 Action {i+1}/{len(actions)}: [{action_type}] {action_name}")
-                logger.info(f"| 📝 Args: {action_args}")
+                    logger.info(f"| 📝 Action {i+1}/{len(actions)}: [{action_type}] {action_name}")
+                    logger.info(f"| 📝 Args: {action_args}")
 
-                # 根据行动类型路由到不同的处理器
-                if action_type == "skill":
-                    # ===== 路由到技能处理器(SCP) =====
-                    response = await scp(
-                        name=action_name,    # 技能名称
-                        input=action_args,   # 技能输入参数
-                        ctx=ctx,             # 会话上下文
+                    # 根据行动类型路由到不同的处理器
+                    if action_type == "skill":
+                        # ===== 路由到技能处理器(SCP) =====
+                        response = await scp(
+                            name=action_name,    # 技能名称
+                            input=action_args,   # 技能输入参数
+                            ctx=ctx,             # 会话上下文
+                        )
+                        # 技能执行结果
+                        action_result = response.message
+                        action_extra = response.extra if hasattr(response, 'extra') else None
+
+                        # 记录技能执行完成日志
+                        logger.info(f"| ✅ Skill '{action_name}' completed (success={response.success})")
+                        logger.info(f"| 📄 Result: {str(action_result)[:500]}")
+
+                        # 构建行动字典,包含原始行动信息和执行结果
+                        action_dict = action.model_dump()
+                        action_dict["output"] = action_result
+                        action_results.append(action_dict)
+
+                        # 构建记录额外信息
+                        record_extra = {}
+                        record_extra.update(action_dict)
+                        if action_extra is not None:
+                            record_extra['extra'] = action_extra.model_dump()
+                        record_data["actions"].append(record_extra)
+
+                    else:
+                        # ===== 路由到工具处理器(TCP,默认处理type=="tool") =====
+                        tool_response = await tcp(
+                            name=action_name,     # 工具名称
+                            input=action_args,    # 工具输入参数
+                            ctx=ctx,              # 会话上下文
+                        )
+                        # 工具执行结果
+                        action_result = tool_response.message
+                        action_extra = tool_response.extra if hasattr(tool_response, 'extra') else None
+
+                        logger.info(f"| ✅ Tool '{action_name}' completed")
+                        logger.info(f"| 📄 Result: {str(action_result)}")
+
+                        # 构建行动字典,包含原始行动信息和执行结果
+                        action_dict = action.model_dump()
+                        action_dict["output"] = action_result
+                        action_results.append(action_dict)
+
+                        record_extra = {}
+                        record_extra.update(action_dict)
+                        if action_extra is not None:
+                            record_extra['extra'] = action_extra.model_dump()
+                        record_data["actions"].append(record_extra)
+
+                        # 检查是否是"done"工具,如果是则标记任务完成并退出循环
+                        if action_name == "done":
+                            done = True
+                            result = action_result
+                            # 从extra中提取reasoning字段(如果存在)
+                            reasoning = action_extra.data.get('reasoning', None) if action_extra and action_extra.data else None
+                            break    # 提前退出,不再执行后续行动
+                except Exception as exc:
+                    # Keep execution errors in the same history as normal tool outputs.
+                    # Stop this batch so later actions cannot depend on a failed call.
+                    error_output = (
+                        f"{type(exc).__name__}: {exc}. "
+                        "Review the tool arguments and execution error before trying again."
                     )
-                    # 技能执行结果
-                    action_result = response.message
-                    action_extra = response.extra if hasattr(response, 'extra') else None
-
-                    # 记录技能执行完成日志
-                    logger.info(f"| ✅ Skill '{action_name}' completed (success={response.success})")
-                    logger.info(f"| 📄 Result: {str(action_result)[:500]}")
-
-                    # 构建行动字典,包含原始行动信息和执行结果
+                    logger.warning(f"| Action '{action_name}' failed: {error_output}")
                     action_dict = action.model_dump()
-                    action_dict["output"] = action_result
+                    action_dict.update(success=False, output=error_output)
                     action_results.append(action_dict)
-
-                    # 构建记录额外信息
-                    record_extra = {}
-                    record_extra.update(action_dict)
-                    if action_extra is not None:
-                        record_extra['extra'] = action_extra.model_dump()
-                    record_data["actions"].append(record_extra)
-
-                else:
-                    # ===== 路由到工具处理器(TCP,默认处理type=="tool") =====
-                    tool_response = await tcp(
-                        name=action_name,     # 工具名称
-                        input=action_args,    # 工具输入参数
-                        ctx=ctx,              # 会话上下文
-                    )
-                    # 工具执行结果
-                    action_result = tool_response.message
-                    action_extra = tool_response.extra if hasattr(tool_response, 'extra') else None
-
-                    logger.info(f"| ✅ Tool '{action_name}' completed")
-                    logger.info(f"| 📄 Result: {str(action_result)}")
-
-                    # 构建行动字典,包含原始行动信息和执行结果
-                    action_dict = action.model_dump()
-                    action_dict["output"] = action_result
-                    action_results.append(action_dict)
-
-                    record_extra = {}
-                    record_extra.update(action_dict)
-                    if action_extra is not None:
-                        record_extra['extra'] = action_extra.model_dump()
-                    record_data["actions"].append(record_extra)
-
-                    # 检查是否是"done"工具,如果是则标记任务完成并退出循环
-                    if action_name == "done":
-                        done = True
-                        result = action_result
-                        # 从extra中提取reasoning字段(如果存在)
-                        reasoning = action_extra.data.get('reasoning', None) if action_extra and action_extra.data else None
-                        break    # 提前退出,不再执行后续行动
+                    record_data["actions"].append(dict(action_dict))
+                    break
 
             # ===== 阶段3: 构建事件数据并记录 =====
             event_data = {
