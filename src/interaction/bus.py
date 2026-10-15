@@ -744,18 +744,20 @@ class AgentBus:
                 identity = {"dispatch_id": dispatch_id, "agent_name": name, "task": subtask}
                 history_parts.append(f"  {name} [{dispatch_id}] subtask: {subtask[:200]}")
 
-                # 调用抛出异常时记录失败，供下一轮 planner 判断如何继续。
+                # TypeError、ValueError 等通常已被 _call_agent 转成 BusMessage，走 else。
+                # 此分支兜底处理逃出的异常，由 gather 收集。
                 if isinstance(raw, BaseException):
                     logger.error(f"| Bus: agent '{name}' error: {raw}")
                     round_results[dispatch_id] = {**identity, "success": False, "result": "", "error": str(raw)}
                     history_parts.append(f"  FAIL {name} [{dispatch_id}]: {str(raw)[:300]}")
                 else:
-                    # 正常返回 BusMessage 也可能表示失败，需读取 payload.success。
-                    # 保留结果或错误文本；历史摘要只截取前 300 个字符。
+                    # 已封装为消息，通过 success 判断成败。
                     ok = raw.payload.get("success", False)
+                    # 无结果时取错误信息。
                     result_text = str(
                         raw.payload.get("result") or raw.payload.get("error") or ""
                     )
+                    # 保存结果，供下一轮 Planner 决策。
                     round_results[dispatch_id] = {
                         **identity,
                         "success": ok,
