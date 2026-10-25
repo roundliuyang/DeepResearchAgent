@@ -37,18 +37,18 @@ agent_names = [
     "tool_calling"
 ]
 tool_names = [
-    # 'bash',
-    # 'python_interpreter',
-    'done',
-    'todo',
-    # 'mdify',
-    # "deep_analyzer",
-    # "deep_researcher",
-    # "browser",
-    # "plotter",
-    "skill_generator",
-    "ai_capability_debate",
-    "mcp_importer",
+    'bash',                    # 执行 Shell 命令，调用本机已安装的 CLI 工具或脚本
+    # 'python_interpreter',    # 执行 Python 代码并返回输出，用于计算和数据处理
+    'done',                    # 向 Agent 表明任务已完成
+    'todo',                    # 拆解任务、维护 todo.md，并跟踪各步骤的状态和结果
+    # 'mdify',                # 将多种格式的文件转换为 Markdown 文本并保存
+    # "deep_analyzer",        # 对附带文件的复杂任务进行多步骤分析与信息综合
+    # "deep_researcher",      # 执行多轮网页搜索和内容分析，汇总研究结果
+    # "browser",              # 操作浏览器，与网页交互以完成任务
+    # "plotter",              # 将文本、Markdown 表格或 CSV 数据绘制为 PNG 图表
+    "skill_generator",         # 根据需求生成技能包，校验并注册到技能管理器 SCP
+    "ai_capability_debate",    # 组织多个大模型讨论，评估 AI 能力边界并汇总共识
+    "mcp_importer",            # 连接 MCP 服务并发现工具，将服务注册为可调用的代理工具
 ]
 skill_names = [
     "hello-world",
