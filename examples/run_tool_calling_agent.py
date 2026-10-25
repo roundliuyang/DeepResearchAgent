@@ -104,11 +104,12 @@ async def main():
 # MCP工具调用格式：{"action": "<工具名>", "args": {<参数>: <值>}}
 # 例如：{"action": "read_paragraphs", "args": {"file_path": "D:/xxx.docx"}}
 # """
-    task = """请向以下团队成员发送问候语：
-    1. Alice（使用随意风格）
-    2. Professor Zhang（使用正式风格）
-    3. Bob（庆祝生日，使用节日风格）
-    """
+#     task = """请向以下团队成员发送问候语：
+#     1. Alice（使用随意风格）
+#     2. Professor Zhang（使用正式风格）
+#     3. Bob（庆祝生日，使用节日风格）
+#     """
+    task = "请使用 bash 工具执行 git --version，并告诉我 Git 的版本。"
 
     files = []
     

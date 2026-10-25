@@ -59,12 +59,12 @@ skill_names = [
 mcp_connections = {
     "math_server": {
         "command": "python",
-        "args": ["D:/xx/DeepResearchAgent/servers/math_server.py"],
+        "args": ["/Users/xx/DeepResearchAgent/servers/math_server.py"],
         "transport": "stdio"
     },
     "docx_server": {
         "command": "python",
-        "args": ["D:/xx/DeepResearchAgent/servers/docx_server.py"],
+        "args": ["/Users/xx/DeepResearchAgent/servers/docx_server.py"],
         "transport": "stdio"
     },
 }
